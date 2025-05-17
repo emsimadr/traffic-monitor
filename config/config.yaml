@@ -1,0 +1,22 @@
+# Camera settings
+camera:
+  device_id: 0                   # Camera device ID (usually 0 for primary camera)
+  resolution: [1280, 720]        # Camera resolution [width, height]
+  fps: 30                        # Frames per second
+
+# Detection settings
+detection:
+  min_contour_area: 1000         # Minimum contour area for vehicle detection
+  counting_line_position: 0.5    # Position of counting line (0-1, fraction of frame height)
+  detect_shadows: true           # Whether to detect shadows in background subtraction
+
+# Storage settings
+storage:
+  local_database_path: "data/database.sqlite"  # Path to local SQLite database
+  retention_days: 30                          # How long to keep data locally
+  use_cloud_storage: true                     # Whether to use cloud storage
+  sync_enabled: true                          # Whether to sync data to cloud
+
+# System settings
+log_path: "logs/traffic_monitor.log"  # Path to log file
+log_level: "INFO"                     # Logging level (DEBUG, INFO, WARNING, ERROR)
