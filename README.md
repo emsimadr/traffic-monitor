@@ -1,137 +1,275 @@
-# Neighborhood Traffic Monitoring Project
+# Neighborhood Traffic Monitoring System
+
+A hybrid edge-cloud architecture for monitoring and analyzing traffic patterns on residential streets using a Raspberry Pi with webcam and Google Cloud Platform for data processing.
 
 ## Problem Statement
 
-Our residential street has become increasingly dangerous due to high traffic volumes and reckless driving behavior, creating an unsafe environment for residents, pedestrians, and especially children. Despite frequent close calls and community concerns, we lack the quantitative data necessary to compel municipal action. Current traffic management prioritizes vehicle flow over neighborhood livability, putting vulnerable road users at risk daily.
+Our residential street has become increasingly dangerous due to high traffic volumes and reckless driving, creating an unsafe environment for residents, pedestrians, and especially children. Despite frequent close calls and community concerns, we lack the quantitative data necessary to compel municipal action for traffic calming measures.
 
-We need to systematically collect and analyze comprehensive traffic data to build an evidence-based case for implementing traffic calming measures such as speed bumps, enhanced signage, and integrated road design that prioritizes safety for all users. By documenting actual traffic patterns, speeds, pedestrian presence, and dangerous behaviors, we aim to shift the conversation from anecdotal complaints to data-driven solutions that transform our street from a thoroughfare to a livable community space where all road users can safely coexist.
+This project systematically collects and analyzes traffic data to build an evidence-based case for implementing traffic calming measures such as speed bumps, enhanced signage, and integrated road design that prioritizes safety for all road users.
 
-## Project Overview
+## Project Architecture
 
-This project uses a Raspberry Pi 4 with a webcam to create an automated traffic monitoring system capable of:
-- Counting vehicles and measuring their speeds
-- Detecting and counting pedestrians (with/without strollers or wheelchairs)
-- Tracking bicycle traffic
-- Visualizing vehicle travel paths as heatmaps
-- Generating reports and visualizations for community advocacy
+The system uses a hybrid edge-cloud architecture:
+
+### Edge Component (Raspberry Pi)
+- Captures video from webcam
+- Performs real-time vehicle detection and counting
+- Temporarily stores data locally
+- Syncs data to the cloud on a regular schedule
+- Operates with fallback mechanisms for connectivity issues
+
+### Cloud Component (Google Cloud Platform)
+- Stores the complete dataset
+- Performs advanced analytics and processing
+- Handles visualization and reporting
+- Provides dashboards and APIs for data access
+- Scales resources as needed for intensive tasks
+
+![System Architecture](docs/images/architecture-diagram.png)
 
 ## Project Structure
 
 ```
 traffic_monitor/
 │
-├── docs/
-│   ├── roadmap.md                 # Development roadmap
-│   ├── setup_guide.md             # Hardware setup instructions
-│   └── calibration_guide.md       # Camera calibration guide
+├── docs/                        # Documentation
+│   ├── images/                  # Documentation images
+│   ├── roadmap.md               # Development roadmap
+│   ├── milestone1_plan.md       # Milestone 1 details
+│   ├── setup_guide.md           # Hardware setup instructions
+│   └── calibration_guide.md     # Camera calibration guide
 │
-├── src/
-│   ├── main.py                    # Main application entry point
-│   ├── config.py                  # Configuration handling
-│   ├── camera/                    # Camera module
+├── src/                         # Source code
+│   ├── main.py                  # Main application entry point
+│   ├── camera/                  # Camera module
 │   │   ├── __init__.py
-│   │   ├── capture.py             # Video capture
-│   │   └── calibration.py         # Camera calibration tools
+│   │   └── capture.py           # Video capture functionality
 │   │
-│   ├── detection/                 # Detection modules
+│   ├── detection/               # Detection modules
 │   │   ├── __init__.py
-│   │   ├── vehicle.py             # Vehicle detection
-│   │   ├── pedestrian.py          # Pedestrian detection
-│   │   └── bicycle.py             # Bicycle detection
+│   │   └── vehicle.py           # Vehicle detection (Milestone 1)
 │   │
-│   ├── tracking/                  # Tracking modules
+│   ├── storage/                 # Local storage
 │   │   ├── __init__.py
-│   │   ├── object_tracker.py      # Object tracking base class
-│   │   └── path_tracker.py        # Path tracking for heatmaps
+│   │   └── database.py          # SQLite database handling
 │   │
-│   ├── speed/                     # Speed calculation
+│   ├── cloud/                   # Cloud integration
 │   │   ├── __init__.py
-│   │   ├── boundaries.py          # Boundary definitions
-│   │   └── calculator.py          # Speed calculation
+│   │   ├── sync.py              # Cloud synchronization
+│   │   ├── auth.py              # GCP authentication
+│   │   └── utils.py             # Cloud utilities
 │   │
-│   ├── storage/                   # Data storage
-│   │   ├── __init__.py
-│   │   ├── database.py            # Database management
-│   │   └── models.py              # Data models
-│   │
-│   └── visualization/             # Visualization tools
-│       ├── __init__.py
-│       ├── dashboard.py           # Basic dashboard
-│       ├── reports.py             # Report generation
-│       └── heatmap.py             # Heatmap generation
+│   └── visualization/           # Data visualization (future)
+│       └── __init__.py
 │
-├── tools/                         # Utility scripts
-│   ├── setup_system.py            # Initial setup script
-│   ├── calibrate_camera.py        # Camera calibration tool
-│   └── generate_report.py         # Report generation tool
+├── tools/                       # Utility scripts
+│   ├── setup_system.py          # System setup helper
+│   └── test_cloud_connection.py # Cloud connectivity test
 │
-├── data/                          # Data directory
-│   ├── config.yaml                # Configuration file
-│   └── database.sqlite            # SQLite database (created at runtime)
+├── config/                      # Configuration files
+│   ├── config.yaml              # Main configuration
+│   └── cloud_config.yaml        # Cloud-specific configuration
 │
-└── requirements.txt               # Python dependencies
+├── data/                        # Data directory
+│   └── database.sqlite          # Local SQLite database
+│
+├── logs/                        # System logs
+│
+├── secrets/                     # Credentials (gitignored)
+│   └── gcp-credentials.json     # GCP service account key
+│
+└── requirements.txt             # Python dependencies
 ```
+
+## Development Roadmap
+
+The project is implemented through 8 progressive milestones:
+
+1. **Core Vehicle Detection & Data Collection** (Current)
+   - Basic vehicle detection and counting
+   - Local and cloud data storage
+   - Initial synchronization
+
+2. **Speed Measurement System**
+   - Camera calibration
+   - Speed calculation
+   - Enhanced data collection
+
+3. **Pedestrian Detection & Classification**
+   - Pedestrian identification
+   - Classification (adults, children, strollers, etc.)
+   - Expanded database schema
+
+4. **Bicycle Detection Integration**
+   - Bicycle detection and counting
+   - Integration with existing components
+   - Multi-modal traffic analysis
+
+5. **Path Tracking & Heatmap Visualization**
+   - Track movement patterns
+   - Create heatmaps of vehicle paths
+   - GCP-based visualization
+
+6. **System Integration & Refinement**
+   - Comprehensive data integration
+   - Performance optimization
+   - Enhanced synchronization
+
+7. **Advanced Features & Expansion**
+   - Additional detection capabilities
+   - Machine learning enhancements
+   - Multi-camera support (optional)
+
+8. **Data Presentation & Advocacy**
+   - Create compelling data visualizations
+   - Generate reports for municipal advocacy
+   - Develop presentation materials
 
 ## Hardware Requirements
 
 - Raspberry Pi 4 (4GB+ RAM recommended)
 - USB webcam (minimum 720p resolution)
-- Stable mounting solution for camera
+- Stable mounting solution for second-floor window
 - Power supply for Raspberry Pi
 - SD card (32GB+ recommended)
 - Optional: External hard drive for video storage
+- Reliable Internet connection
 
-## Software Dependencies
+## Software Requirements
+
+### Raspberry Pi
+- Raspberry Pi OS (Bullseye or newer)
+- Python 3.7+
+- OpenCV, NumPy, PyYAML
+- Google Cloud client libraries
+
+### Google Cloud Platform
+- Google Cloud project with:
+  - Cloud Storage
+  - BigQuery
+  - Cloud Functions (optional)
+  - Looker Studio (for dashboards)
+
+## Installation
+
+### 1. Raspberry Pi Setup
+
+1. Install Raspberry Pi OS on SD card
+2. Connect to network and enable SSH
+3. Update system packages:
+   ```
+   sudo apt update
+   sudo apt upgrade
+   ```
+4. Install required packages:
+   ```
+   sudo apt install python3-pip python3-opencv
+   ```
+
+### 2. Clone Repository and Install Dependencies
 
 ```
-opencv-python>=4.5.0
-numpy>=1.19.0
-scipy>=1.6.0
-pandas>=1.2.0
-matplotlib>=3.3.0
-pyyaml>=5.4.0
-SQLAlchemy>=1.4.0
-imutils>=0.5.4
+git clone https://github.com/your-username/traffic-monitor.git
+cd traffic-monitor
+pip3 install -r requirements.txt
 ```
 
-## Getting Started
+### 3. Google Cloud Platform Setup
 
-1. Clone this repository to your Raspberry Pi
-2. Install dependencies: `pip install -r requirements.txt`
-3. Configure your settings in `data/config.yaml`
-4. Run the camera calibration: `python tools/calibrate_camera.py`
-5. Start the system: `python src/main.py`
+1. Create a GCP project in the [Google Cloud Console](https://console.cloud.google.com/)
+2. Enable required APIs:
+   - Cloud Storage API
+   - BigQuery API
+3. Create a service account with the following roles:
+   - Storage Object Admin
+   - BigQuery Data Editor
+4. Download service account key JSON file to `secrets/gcp-credentials.json`
+5. Create Cloud Storage bucket and BigQuery dataset
 
-## Development Roadmap
+### 4. Configure System
 
-The project is organized into the following development milestones:
+1. Edit settings in `config/config.yaml` to match your hardware setup
+2. Configure cloud integration in `config/cloud_config.yaml`
+3. Position webcam to properly view the street
+4. Test camera connection:
+   ```
+   python3 tools/test_camera.py
+   ```
+5. Test cloud connection:
+   ```
+   python3 tools/test_cloud_connection.py
+   ```
 
-### Milestone 1: Core Vehicle Detection & Data Collection
-- Basic system setup and vehicle counting
+### 5. Run the System
 
-### Milestone 2: Speed Measurement System
-- Speed calculation for passing vehicles
+```
+# Run with visualization (for testing)
+python3 src/main.py --config config/config.yaml --display
 
-### Milestone 3: Pedestrian Detection & Classification
-- Detection of pedestrians, with/without strollers or wheelchairs
+# Run headless (for deployment)
+python3 src/main.py --config config/config.yaml
 
-### Milestone 4: Bicycle Detection
-- Detection and counting of bicycle traffic
+# Record video samples
+python3 src/main.py --config config/config.yaml --record
+```
 
-### Milestone 5: Path Tracking & Heatmap Visualization
-- Visualization of vehicle travel paths
+## Using the Data
 
-### Milestone 6: System Integration & Refinement
-- System optimization and dashboard creation
+### Accessing Local Data
 
-### Milestone 7: Advanced Features
-- Additional analytics and classification capabilities
+The SQLite database (`data/database.sqlite`) contains:
+- Individual vehicle detection events
+- Hourly and daily aggregate counts
 
-### Milestone 8: Data Presentation & Advocacy
-- Tools for community presentations and advocacy
+### Accessing Cloud Data
 
-For detailed information on each milestone, see `docs/roadmap.md`.
+#### BigQuery
+- Run queries and analysis on the full dataset
+- Create views for common analysis patterns
+- Connect to data visualization tools
+
+#### Looker Studio
+- Create dashboards for traffic patterns
+- Generate visualizations for advocacy
+- Share insights with community members
+
+## Data Privacy Considerations
+
+This system is designed to monitor traffic patterns only, not identify individuals:
+- No identifying information is collected
+- Video is processed for counting and analysis, not surveillance
+- Data is anonymized and aggregated
+- Installation location should respect community privacy
+
+## Contributing
+
+Contributions to improve the system are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/new-feature`)
+3. Commit your changes (`git commit -m 'Add new feature'`)
+4. Push to the branch (`git push origin feature/new-feature`)
+5. Open a Pull Request
+
+## Troubleshooting
+
+### Raspberry Pi Issues
+- Camera not detected: Verify USB connection and try different ports
+- Performance problems: Reduce resolution or FPS in configuration
+- Overheating: Ensure adequate ventilation for the Pi
+
+### Cloud Integration Issues
+- Authentication errors: Check credentials file and permissions
+- Sync failures: Verify internet connection and retry logic
+- BigQuery errors: Confirm schema matches between local and cloud
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- OpenCV community for computer vision tools
+- Google Cloud documentation and examples
+- Raspberry Pi community for edge computing guides
