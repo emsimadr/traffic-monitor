@@ -178,3 +178,4 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 secrets/gcp-credentials.json
+secrets/gcp-credentials.json

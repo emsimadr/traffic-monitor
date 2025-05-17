@@ -24,11 +24,11 @@ import numpy as np
 from datetime import datetime
 
 # Import local modules
-from src.camera.capture import VideoCapture
-from src.detection.vehicle import VehicleDetector
-from src.storage.database import Database
-from src.cloud.sync import CloudSync
-from src.cloud.utils import check_cloud_config
+from camera.capture import VideoCapture
+from detection.vehicle import VehicleDetector
+from storage.database import Database
+from cloud.sync import CloudSync
+from cloud.utils import check_cloud_config
 
 def load_config(config_path):
     """Load configuration from YAML file."""

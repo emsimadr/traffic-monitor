@@ -1,11 +1,11 @@
 # GCP Configuration
 gcp:
-  project_id: "your-gcp-project-id"  # Replace with your GCP project ID
+  project_id: "traffic-monitor-460114"  # Replace with your GCP project ID
   credentials_file: "secrets/gcp-credentials.json"
   
   # Cloud Storage
   storage:
-    bucket_name: "traffic-monitor-data"
+    bucket_name: "traffic-monitor-data-20250517-460114"
     video_samples_folder: "video_samples"
     detection_data_folder: "detection_data"
   

@@ -276,3 +276,114 @@ class CloudSync:
             cursor = conn.cursor()
             
             # Get unsynchronized records
+            cursor.execute(
+                '''
+                SELECT * FROM daily_counts 
+                WHERE cloud_synced = 0
+                ORDER BY date
+                LIMIT ?
+                ''',
+                (self.batch_size,)
+            )
+            
+            records = cursor.fetchall()
+            if not records:
+                logging.info("No new daily counts to sync")
+                return
+            
+            logging.info(f"Syncing {len(records)} daily count records")
+            
+            # Prepare data for BigQuery
+            rows_to_insert = []
+            record_ids = []
+            
+            for record in records:
+                row = dict(record)
+                record_ids.append(row['id'])
+                # Remove SQLite-specific fields
+                if 'cloud_synced' in row:
+                    del row['cloud_synced']
+                rows_to_insert.append(row)
+            
+            # Get BigQuery table reference
+            dataset_id = self.config['gcp']['bigquery']['dataset_id']
+            table_id = self.config['gcp']['bigquery']['daily_table']
+            table_ref = f"{self.project_id}.{dataset_id}.{table_id}"
+            
+            # Insert data to BigQuery
+            errors = self.bigquery_client.insert_rows_json(table_ref, rows_to_insert)
+            if errors:
+                logging.error(f"BigQuery insertion errors: {errors}")
+                raise Exception("Failed to insert daily counts into BigQuery")
+            
+            # Mark records as synced
+            placeholders = ','.join(['?' for _ in record_ids])
+            cursor.execute(
+                f"UPDATE daily_counts SET cloud_synced = 1 WHERE id IN ({placeholders})",
+                record_ids
+            )
+            conn.commit()
+            
+            logging.info(f"Successfully synced {len(records)} daily counts")
+        
+        except Exception as e:
+            logging.error(f"Error syncing daily counts: {e}")
+            raise
+        finally:
+            if 'conn' in locals():
+                conn.close()
+    
+    def upload_video_sample(self, video_path, metadata=None):
+        """
+        Upload a video sample to Cloud Storage.
+        
+        Args:
+            video_path: Path to the local video file
+            metadata: Optional dictionary of metadata
+        
+        Returns:
+            URL of the uploaded video or None if upload failed
+        """
+        if not self.is_cloud_enabled:
+            logging.warning("Cannot upload video: Cloud sync is not enabled")
+            return None
+            
+        try:
+            # Create a unique blob name
+            filename = os.path.basename(video_path)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            blob_name = f"{self.config['gcp']['storage']['video_samples_folder']}/{timestamp}_{filename}"
+            
+            # Get blob
+            blob = self.bucket.blob(blob_name)
+            
+            # Set metadata if provided
+            if metadata:
+                blob.metadata = metadata
+            
+            # Upload file
+            blob.upload_from_filename(video_path)
+            
+            logging.info(f"Uploaded video sample: {blob_name}")
+            
+            # Return URL
+            return f"gs://{self.bucket.name}/{blob_name}"
+        
+        except Exception as e:
+            logging.error(f"Error uploading video sample: {e}")
+            for attempt in range(self.max_retry_attempts):
+                try:
+                    logging.info(f"Retrying upload (attempt {attempt+1}/{self.max_retry_attempts})")
+                    time.sleep(self.retry_delay)
+                    
+                    # Get new blob reference
+                    blob = self.bucket.blob(blob_name)
+                    blob.upload_from_filename(video_path)
+                    
+                    logging.info(f"Retry successful: {blob_name}")
+                    return f"gs://{self.bucket.name}/{blob_name}"
+                
+                except Exception as retry_error:
+                    logging.error(f"Retry failed: {retry_error}")
+            
+            return None
