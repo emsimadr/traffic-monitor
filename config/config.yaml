@@ -1,13 +1,17 @@
 # Camera settings
 camera:
-  device_id: 0                   # Camera device ID (usually 0 for primary camera)
+  device_id: "rtsp://192.168.4.45/live0"  # Base IP camera URL
+  secrets_file: "secrets/camera_secrets.yaml" # Path to credentials file
+  rtsp_transport: "udp"          # Force transport protocol: "tcp" or "udp"
   resolution: [1280, 720]        # Camera resolution [width, height]
   fps: 30                        # Frames per second
 
 # Detection settings
 detection:
   min_contour_area: 1000         # Minimum contour area for vehicle detection
-  counting_line_position: 0.5    # Position of counting line (0-1, fraction of frame height)
+  # Counting line defined as [[x1, y1], [x2, y2]] using ratios (0.0-1.0)
+  # Example: Top-left to bottom-right diagonal
+  counting_line: [[0.2, 1.0], [0.9, 0.0]]
   detect_shadows: true           # Whether to detect shadows in background subtraction
 
 # Storage settings

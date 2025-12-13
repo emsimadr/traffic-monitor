@@ -69,6 +69,9 @@ class CloudSync:
             self.is_cloud_enabled = True
             logging.info("Cloud sync module initialized successfully")
             
+            # Ensure BigQuery tables exist
+            self._ensure_bigquery_tables()
+            
         except Exception as e:
             logging.error(f"Failed to initialize cloud sync: {e}")
             self.is_cloud_enabled = False
@@ -95,6 +98,91 @@ class CloudSync:
             self._sync_thread.join(timeout=10)
             logging.info("Cloud sync thread stopped")
     
+    def _ensure_bigquery_tables(self):
+        """Ensure BigQuery dataset and tables exist with correct schemas."""
+        if not self.is_cloud_enabled:
+            return
+        
+        try:
+            from google.cloud import bigquery
+            from google.cloud.exceptions import NotFound
+            
+            dataset_id = self.config['gcp']['bigquery']['dataset_id']
+            dataset_ref = self.bigquery_client.dataset(dataset_id)
+            
+            # Check if dataset exists, create if not
+            try:
+                self.bigquery_client.get_dataset(dataset_ref)
+                logging.info(f"BigQuery dataset '{dataset_id}' exists")
+            except NotFound:
+                logging.info(f"Creating BigQuery dataset '{dataset_id}'")
+                dataset = bigquery.Dataset(dataset_ref)
+                dataset.location = "US"  # Default location
+                dataset = self.bigquery_client.create_dataset(dataset, exists_ok=True)
+                logging.info(f"Created BigQuery dataset '{dataset_id}'")
+            
+            # Define table schemas
+            vehicle_detections_schema = [
+                bigquery.SchemaField("id", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("timestamp", "FLOAT", mode="REQUIRED"),
+                bigquery.SchemaField("date_time", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("direction", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("recorded_at", "TIMESTAMP", mode="NULLABLE"),
+            ]
+            
+            hourly_counts_schema = [
+                bigquery.SchemaField("id", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("hour_beginning", "TIMESTAMP", mode="REQUIRED"),
+                bigquery.SchemaField("vehicle_count", "INTEGER", mode="REQUIRED"),
+            ]
+            
+            daily_counts_schema = [
+                bigquery.SchemaField("id", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("date", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("vehicle_count", "INTEGER", mode="REQUIRED"),
+            ]
+            
+            # Ensure vehicle_detections table exists
+            vehicles_table_id = self.config['gcp']['bigquery']['vehicles_table']
+            vehicles_table_ref = dataset_ref.table(vehicles_table_id)
+            try:
+                self.bigquery_client.get_table(vehicles_table_ref)
+                logging.info(f"BigQuery table '{vehicles_table_id}' exists")
+            except NotFound:
+                logging.info(f"Creating BigQuery table '{vehicles_table_id}'")
+                table = bigquery.Table(vehicles_table_ref, schema=vehicle_detections_schema)
+                table = self.bigquery_client.create_table(table)
+                logging.info(f"Created BigQuery table '{vehicles_table_id}'")
+            
+            # Ensure hourly_counts table exists
+            hourly_table_id = self.config['gcp']['bigquery']['hourly_table']
+            hourly_table_ref = dataset_ref.table(hourly_table_id)
+            try:
+                self.bigquery_client.get_table(hourly_table_ref)
+                logging.info(f"BigQuery table '{hourly_table_id}' exists")
+            except NotFound:
+                logging.info(f"Creating BigQuery table '{hourly_table_id}'")
+                table = bigquery.Table(hourly_table_ref, schema=hourly_counts_schema)
+                table = self.bigquery_client.create_table(table)
+                logging.info(f"Created BigQuery table '{hourly_table_id}'")
+            
+            # Ensure daily_counts table exists
+            daily_table_id = self.config['gcp']['bigquery']['daily_table']
+            daily_table_ref = dataset_ref.table(daily_table_id)
+            try:
+                self.bigquery_client.get_table(daily_table_ref)
+                logging.info(f"BigQuery table '{daily_table_id}' exists")
+            except NotFound:
+                logging.info(f"Creating BigQuery table '{daily_table_id}'")
+                table = bigquery.Table(daily_table_ref, schema=daily_counts_schema)
+                table = self.bigquery_client.create_table(table)
+                logging.info(f"Created BigQuery table '{daily_table_id}'")
+        
+        except Exception as e:
+            logging.error(f"Error ensuring BigQuery tables: {e}")
+            # Don't disable cloud sync, but log the error
+            logging.warning("Continuing with cloud sync, but tables may not exist")
+    
     def _sync_worker(self):
         """Background worker for periodic syncing."""
         while not self._stop_sync:
@@ -112,7 +200,10 @@ class CloudSync:
     
     def sync_data(self):
         """
-        Synchronize local data with cloud services.
+        Synchronize local data with cloud services with retry logic.
+        
+        Returns:
+            True if sync succeeded, False otherwise
         """
         if not self.is_cloud_enabled:
             logging.warning("Cannot sync data: Cloud sync is not enabled")
@@ -120,20 +211,30 @@ class CloudSync:
             
         logging.info("Starting data synchronization with cloud")
         
-        try:
-            # Sync vehicle detections
-            self._sync_vehicle_detections()
+        # Retry sync with exponential backoff
+        for attempt in range(self.max_retry_attempts):
+            try:
+                # Sync vehicle detections
+                self._sync_vehicle_detections()
+                
+                # Sync aggregated counts
+                self._sync_hourly_counts()
+                self._sync_daily_counts()
+                
+                logging.info("Data synchronization completed successfully")
+                return True
             
-            # Sync aggregated counts
-            self._sync_hourly_counts()
-            self._sync_daily_counts()
-            
-            logging.info("Data synchronization completed successfully")
-            return True
+            except Exception as e:
+                if attempt < self.max_retry_attempts - 1:
+                    wait_time = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                    logging.warning(f"Synchronization error (attempt {attempt + 1}/{self.max_retry_attempts}): {e}")
+                    logging.info(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    logging.error(f"Synchronization failed after {self.max_retry_attempts} attempts: {e}")
+                    return False
         
-        except Exception as e:
-            logging.error(f"Synchronization error: {e}")
-            return False
+        return False
     
     def _sync_vehicle_detections(self):
         """Sync vehicle detection data to BigQuery."""
@@ -171,7 +272,25 @@ class CloudSync:
                 # Remove SQLite-specific fields
                 if 'cloud_synced' in row:
                     del row['cloud_synced']
-                rows_to_insert.append(row)
+                
+                # Validate data before adding
+                if self._validate_vehicle_detection(row):
+                    rows_to_insert.append(row)
+                else:
+                    logging.warning(f"Skipping invalid vehicle detection record {row.get('id')}")
+                    continue
+            
+            if not rows_to_insert:
+                logging.info("No valid vehicle detections to sync after validation")
+                # Mark records as synced even if invalid to avoid retrying
+                if record_ids:
+                    placeholders = ','.join(['?' for _ in record_ids])
+                    cursor.execute(
+                        f"UPDATE vehicle_detections SET cloud_synced = 1 WHERE id IN ({placeholders})",
+                        record_ids
+                    )
+                    conn.commit()
+                return
             
             # Get BigQuery table reference
             dataset_id = self.config['gcp']['bigquery']['dataset_id']
@@ -237,7 +356,24 @@ class CloudSync:
                 # Remove SQLite-specific fields
                 if 'cloud_synced' in row:
                     del row['cloud_synced']
-                rows_to_insert.append(row)
+                
+                # Validate data
+                if self._validate_hourly_count(row):
+                    rows_to_insert.append(row)
+                else:
+                    logging.warning(f"Skipping invalid hourly count record {row.get('id')}")
+                    continue
+            
+            if not rows_to_insert:
+                logging.info("No valid hourly counts to sync after validation")
+                if record_ids:
+                    placeholders = ','.join(['?' for _ in record_ids])
+                    cursor.execute(
+                        f"UPDATE hourly_counts SET cloud_synced = 1 WHERE id IN ({placeholders})",
+                        record_ids
+                    )
+                    conn.commit()
+                return
             
             # Get BigQuery table reference
             dataset_id = self.config['gcp']['bigquery']['dataset_id']
@@ -303,7 +439,24 @@ class CloudSync:
                 # Remove SQLite-specific fields
                 if 'cloud_synced' in row:
                     del row['cloud_synced']
-                rows_to_insert.append(row)
+                
+                # Validate data
+                if self._validate_daily_count(row):
+                    rows_to_insert.append(row)
+                else:
+                    logging.warning(f"Skipping invalid daily count record {row.get('id')}")
+                    continue
+            
+            if not rows_to_insert:
+                logging.info("No valid daily counts to sync after validation")
+                if record_ids:
+                    placeholders = ','.join(['?' for _ in record_ids])
+                    cursor.execute(
+                        f"UPDATE daily_counts SET cloud_synced = 1 WHERE id IN ({placeholders})",
+                        record_ids
+                    )
+                    conn.commit()
+                return
             
             # Get BigQuery table reference
             dataset_id = self.config['gcp']['bigquery']['dataset_id']
@@ -387,3 +540,111 @@ class CloudSync:
                     logging.error(f"Retry failed: {retry_error}")
             
             return None
+    
+    def _validate_vehicle_detection(self, row: dict) -> bool:
+        """
+        Validate a vehicle detection record before syncing to BigQuery.
+        
+        Args:
+            row: Dictionary containing vehicle detection data
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        try:
+            # Check required fields
+            required_fields = ['id', 'timestamp', 'date_time']
+            for field in required_fields:
+                if field not in row:
+                    logging.warning(f"Missing required field '{field}' in vehicle detection")
+                    return False
+            
+            # Validate timestamp (should be a positive number)
+            timestamp = row.get('timestamp')
+            if not isinstance(timestamp, (int, float)) or timestamp <= 0:
+                logging.warning(f"Invalid timestamp: {timestamp}")
+                return False
+            
+            # Validate date_time format (basic check)
+            date_time = row.get('date_time')
+            if not isinstance(date_time, str) or len(date_time) < 10:
+                logging.warning(f"Invalid date_time format: {date_time}")
+                return False
+            
+            # Validate direction if present
+            direction = row.get('direction')
+            if direction is not None and direction not in ['northbound', 'southbound', 'unknown']:
+                logging.warning(f"Invalid direction: {direction}")
+                return False
+            
+            return True
+        
+        except Exception as e:
+            logging.error(f"Error validating vehicle detection: {e}")
+            return False
+    
+    def _validate_hourly_count(self, row: dict) -> bool:
+        """
+        Validate an hourly count record before syncing to BigQuery.
+        
+        Args:
+            row: Dictionary containing hourly count data
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        try:
+            # Check required fields
+            required_fields = ['id', 'hour_beginning', 'vehicle_count']
+            for field in required_fields:
+                if field not in row:
+                    logging.warning(f"Missing required field '{field}' in hourly count")
+                    return False
+            
+            # Validate vehicle_count (should be non-negative integer)
+            vehicle_count = row.get('vehicle_count')
+            if not isinstance(vehicle_count, int) or vehicle_count < 0:
+                logging.warning(f"Invalid vehicle_count: {vehicle_count}")
+                return False
+            
+            return True
+        
+        except Exception as e:
+            logging.error(f"Error validating hourly count: {e}")
+            return False
+    
+    def _validate_daily_count(self, row: dict) -> bool:
+        """
+        Validate a daily count record before syncing to BigQuery.
+        
+        Args:
+            row: Dictionary containing daily count data
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        try:
+            # Check required fields
+            required_fields = ['id', 'date', 'vehicle_count']
+            for field in required_fields:
+                if field not in row:
+                    logging.warning(f"Missing required field '{field}' in daily count")
+                    return False
+            
+            # Validate vehicle_count (should be non-negative integer)
+            vehicle_count = row.get('vehicle_count')
+            if not isinstance(vehicle_count, int) or vehicle_count < 0:
+                logging.warning(f"Invalid vehicle_count: {vehicle_count}")
+                return False
+            
+            # Validate date format (basic check - should be YYYY-MM-DD)
+            date = row.get('date')
+            if not isinstance(date, str) or len(date) != 10:
+                logging.warning(f"Invalid date format: {date}")
+                return False
+            
+            return True
+        
+        except Exception as e:
+            logging.error(f"Error validating daily count: {e}")
+            return False

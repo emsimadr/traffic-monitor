@@ -1,389 +1,51 @@
 """
-Cloud synchronization module for uploading data to GCP.
+GCP authentication module for loading service account credentials.
+
+This module provides functions to authenticate with Google Cloud Platform
+using service account credentials stored in a JSON file.
 """
 
 import os
-import time
 import logging
-import json
-from datetime import datetime
-import sqlite3
-import threading
+from typing import Optional
+from google.oauth2 import service_account
+from google.auth import credentials as auth_credentials
 
-class CloudSync:
-    """Synchronizes local data with cloud services."""
+
+def get_credentials(credentials_path: str) -> Optional[auth_credentials.Credentials]:
+    """
+    Load GCP service account credentials from a JSON file.
     
-    def __init__(self, config, database_path):
-        """
-        Initialize cloud synchronization.
+    Args:
+        credentials_path: Path to the service account JSON credentials file
         
-        Args:
-            config: Cloud configuration dictionary
-            database_path: Path to local SQLite database
-        """
-        self.config = config
-        self.database_path = database_path
-        self.is_cloud_enabled = False
+    Returns:
+        Service account credentials object, or None if loading failed
         
-        # Setup sync interval
-        self.sync_interval = config['gcp']['sync']['interval_minutes'] * 60
-        self.max_retry_attempts = config['gcp']['sync']['max_retry_attempts']
-        self.retry_delay = config['gcp']['sync']['retry_delay_seconds']
-        self.batch_size = config['gcp']['sync']['batch_size']
-        
-        # Tracking variables
-        self.last_sync_time = 0
-        self.last_synced_id = 0
-        self._sync_thread = None
-        self._stop_sync = False
-        
-        # Try to initialize cloud clients
-        try:
-            # Import GCP libraries only if needed
-            from google.cloud import storage, bigquery
-            from .auth import get_credentials
-            
-            # Get credentials
-            self.credentials = get_credentials(config['gcp']['credentials_file'])
-            if self.credentials is None:
-                logging.warning("Cloud sync disabled due to missing credentials")
-                return
-            
-            self.project_id = config['gcp']['project_id']
-            
-            # Initialize GCP clients
-            self.storage_client = storage.Client(
-                project=self.project_id, 
-                credentials=self.credentials
-            )
-            self.bigquery_client = bigquery.Client(
-                project=self.project_id, 
-                credentials=self.credentials
-            )
-            
-            # Get cloud storage bucket
-            self.bucket = self.storage_client.bucket(
-                config['gcp']['storage']['bucket_name']
-            )
-            
-            self.is_cloud_enabled = True
-            logging.info("Cloud sync module initialized successfully")
-            
-        except Exception as e:
-            logging.error(f"Failed to initialize cloud sync: {e}")
-            self.is_cloud_enabled = False
+    Example:
+        >>> creds = get_credentials("secrets/gcp-credentials.json")
+        >>> if creds:
+        ...     print("Credentials loaded successfully")
+    """
+    if not credentials_path:
+        logging.error("Credentials path is empty")
+        return None
     
-    def start_sync_thread(self):
-        """Start background thread for periodic sync."""
-        if not self.is_cloud_enabled:
-            logging.warning("Cannot start sync thread: Cloud sync is not enabled")
-            return False
-            
-        if self._sync_thread is None or not self._sync_thread.is_alive():
-            self._stop_sync = False
-            self._sync_thread = threading.Thread(target=self._sync_worker)
-            self._sync_thread.daemon = True
-            self._sync_thread.start()
-            logging.info("Cloud sync thread started")
-            return True
-        return False
+    if not os.path.exists(credentials_path):
+        logging.error(f"Credentials file not found: {credentials_path}")
+        return None
     
-    def stop_sync_thread(self):
-        """Stop the background sync thread."""
-        self._stop_sync = True
-        if self._sync_thread and self._sync_thread.is_alive():
-            self._sync_thread.join(timeout=10)
-            logging.info("Cloud sync thread stopped")
+    if not os.path.isfile(credentials_path):
+        logging.error(f"Credentials path is not a file: {credentials_path}")
+        return None
     
-    def _sync_worker(self):
-        """Background worker for periodic syncing."""
-        while not self._stop_sync:
-            try:
-                # Check if it's time to sync
-                current_time = time.time()
-                if current_time - self.last_sync_time >= self.sync_interval:
-                    self.sync_data()
-                    self.last_sync_time = current_time
-            except Exception as e:
-                logging.error(f"Error in sync worker: {e}")
-            
-            # Sleep before next check
-            time.sleep(60)  # Check every minute
-    
-    def sync_data(self):
-        """
-        Synchronize local data with cloud services.
-        """
-        if not self.is_cloud_enabled:
-            logging.warning("Cannot sync data: Cloud sync is not enabled")
-            return False
-            
-        logging.info("Starting data synchronization with cloud")
+    try:
+        credentials_obj = service_account.Credentials.from_service_account_file(
+            credentials_path
+        )
+        logging.info(f"Successfully loaded credentials from {credentials_path}")
+        return credentials_obj
         
-        try:
-            # Sync vehicle detections
-            self._sync_vehicle_detections()
-            
-            # Sync aggregated counts
-            self._sync_hourly_counts()
-            self._sync_daily_counts()
-            
-            logging.info("Data synchronization completed successfully")
-            return True
-        
-        except Exception as e:
-            logging.error(f"Synchronization error: {e}")
-            return False
-    
-    def _sync_vehicle_detections(self):
-        """Sync vehicle detection data to BigQuery."""
-        try:
-            # Connect to local database
-            conn = sqlite3.connect(self.database_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Get unsynchronized records
-            cursor.execute(
-                '''
-                SELECT * FROM vehicle_detections 
-                WHERE cloud_synced = 0
-                ORDER BY id 
-                LIMIT ?
-                ''',
-                (self.batch_size,)
-            )
-            
-            records = cursor.fetchall()
-            if not records:
-                logging.info("No new vehicle detections to sync")
-                return
-            
-            logging.info(f"Syncing {len(records)} vehicle detection records")
-            
-            # Prepare data for BigQuery
-            rows_to_insert = []
-            record_ids = []
-            
-            for record in records:
-                row = dict(record)
-                record_ids.append(row['id'])
-                # Remove SQLite-specific fields
-                if 'cloud_synced' in row:
-                    del row['cloud_synced']
-                rows_to_insert.append(row)
-            
-            # Get BigQuery table reference
-            dataset_id = self.config['gcp']['bigquery']['dataset_id']
-            table_id = self.config['gcp']['bigquery']['vehicles_table']
-            table_ref = f"{self.project_id}.{dataset_id}.{table_id}"
-            
-            # Insert data to BigQuery
-            errors = self.bigquery_client.insert_rows_json(table_ref, rows_to_insert)
-            if errors:
-                logging.error(f"BigQuery insertion errors: {errors}")
-                raise Exception("Failed to insert data into BigQuery")
-            
-            # Mark records as synced
-            placeholders = ','.join(['?' for _ in record_ids])
-            cursor.execute(
-                f"UPDATE vehicle_detections SET cloud_synced = 1 WHERE id IN ({placeholders})",
-                record_ids
-            )
-            conn.commit()
-            
-            logging.info(f"Successfully synced {len(records)} vehicle detections")
-        
-        except Exception as e:
-            logging.error(f"Error syncing vehicle detections: {e}")
-            raise
-        finally:
-            if 'conn' in locals():
-                conn.close()
-    
-    def _sync_hourly_counts(self):
-        """Sync hourly counts to BigQuery."""
-        try:
-            # Connect to local database
-            conn = sqlite3.connect(self.database_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Get unsynchronized records
-            cursor.execute(
-                '''
-                SELECT * FROM hourly_counts 
-                WHERE cloud_synced = 0
-                ORDER BY hour_beginning
-                LIMIT ?
-                ''',
-                (self.batch_size,)
-            )
-            
-            records = cursor.fetchall()
-            if not records:
-                logging.info("No new hourly counts to sync")
-                return
-            
-            logging.info(f"Syncing {len(records)} hourly count records")
-            
-            # Prepare data for BigQuery
-            rows_to_insert = []
-            record_ids = []
-            
-            for record in records:
-                row = dict(record)
-                record_ids.append(row['id'])
-                # Remove SQLite-specific fields
-                if 'cloud_synced' in row:
-                    del row['cloud_synced']
-                rows_to_insert.append(row)
-            
-            # Get BigQuery table reference
-            dataset_id = self.config['gcp']['bigquery']['dataset_id']
-            table_id = self.config['gcp']['bigquery']['hourly_table']
-            table_ref = f"{self.project_id}.{dataset_id}.{table_id}"
-            
-            # Insert data to BigQuery
-            errors = self.bigquery_client.insert_rows_json(table_ref, rows_to_insert)
-            if errors:
-                logging.error(f"BigQuery insertion errors: {errors}")
-                raise Exception("Failed to insert hourly counts into BigQuery")
-            
-            # Mark records as synced
-            placeholders = ','.join(['?' for _ in record_ids])
-            cursor.execute(
-                f"UPDATE hourly_counts SET cloud_synced = 1 WHERE id IN ({placeholders})",
-                record_ids
-            )
-            conn.commit()
-            
-            logging.info(f"Successfully synced {len(records)} hourly counts")
-        
-        except Exception as e:
-            logging.error(f"Error syncing hourly counts: {e}")
-            raise
-        finally:
-            if 'conn' in locals():
-                conn.close()
-    
-    def _sync_daily_counts(self):
-        """Sync daily counts to BigQuery."""
-        try:
-            # Connect to local database
-            conn = sqlite3.connect(self.database_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Get unsynchronized records
-            cursor.execute(
-                '''
-                SELECT * FROM daily_counts 
-                WHERE cloud_synced = 0
-                ORDER BY date
-                LIMIT ?
-                ''',
-                (self.batch_size,)
-            )
-            
-            records = cursor.fetchall()
-            if not records:
-                logging.info("No new daily counts to sync")
-                return
-            
-            logging.info(f"Syncing {len(records)} daily count records")
-            
-            # Prepare data for BigQuery
-            rows_to_insert = []
-            record_ids = []
-            
-            for record in records:
-                row = dict(record)
-                record_ids.append(row['id'])
-                # Remove SQLite-specific fields
-                if 'cloud_synced' in row:
-                    del row['cloud_synced']
-                rows_to_insert.append(row)
-            
-            # Get BigQuery table reference
-            dataset_id = self.config['gcp']['bigquery']['dataset_id']
-            table_id = self.config['gcp']['bigquery']['daily_table']
-            table_ref = f"{self.project_id}.{dataset_id}.{table_id}"
-            
-            # Insert data to BigQuery
-            errors = self.bigquery_client.insert_rows_json(table_ref, rows_to_insert)
-            if errors:
-                logging.error(f"BigQuery insertion errors: {errors}")
-                raise Exception("Failed to insert daily counts into BigQuery")
-            
-            # Mark records as synced
-            placeholders = ','.join(['?' for _ in record_ids])
-            cursor.execute(
-                f"UPDATE daily_counts SET cloud_synced = 1 WHERE id IN ({placeholders})",
-                record_ids
-            )
-            conn.commit()
-            
-            logging.info(f"Successfully synced {len(records)} daily counts")
-        
-        except Exception as e:
-            logging.error(f"Error syncing daily counts: {e}")
-            raise
-        finally:
-            if 'conn' in locals():
-                conn.close()
-    
-    def upload_video_sample(self, video_path, metadata=None):
-        """
-        Upload a video sample to Cloud Storage.
-        
-        Args:
-            video_path: Path to the local video file
-            metadata: Optional dictionary of metadata
-        
-        Returns:
-            URL of the uploaded video or None if upload failed
-        """
-        if not self.is_cloud_enabled:
-            logging.warning("Cannot upload video: Cloud sync is not enabled")
-            return None
-            
-        try:
-            # Create a unique blob name
-            filename = os.path.basename(video_path)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            blob_name = f"{self.config['gcp']['storage']['video_samples_folder']}/{timestamp}_{filename}"
-            
-            # Get blob
-            blob = self.bucket.blob(blob_name)
-            
-            # Set metadata if provided
-            if metadata:
-                blob.metadata = metadata
-            
-            # Upload file
-            blob.upload_from_filename(video_path)
-            
-            logging.info(f"Uploaded video sample: {blob_name}")
-            
-            # Return URL
-            return f"gs://{self.bucket.name}/{blob_name}"
-        
-        except Exception as e:
-            logging.error(f"Error uploading video sample: {e}")
-            for attempt in range(self.max_retry_attempts):
-                try:
-                    logging.info(f"Retrying upload (attempt {attempt+1}/{self.max_retry_attempts})")
-                    time.sleep(self.retry_delay)
-                    
-                    # Get new blob reference
-                    blob = self.bucket.blob(blob_name)
-                    blob.upload_from_filename(video_path)
-                    
-                    logging.info(f"Retry successful: {blob_name}")
-                    return f"gs://{self.bucket.name}/{blob_name}"
-                
-                except Exception as retry_error:
-                    logging.error(f"Retry failed: {retry_error}")
-            
-            return None
+    except Exception as e:
+        logging.error(f"Failed to load credentials from {credentials_path}: {e}")
+        return None
