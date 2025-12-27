@@ -1,26 +1,15 @@
-# Camera settings
-camera:
-  device_id: "rtsp://192.168.4.45/live0"  # Base IP camera URL
-  secrets_file: "secrets/camera_secrets.yaml" # Path to credentials file
-  rtsp_transport: "udp"          # Force transport protocol: "tcp" or "udp"
-  resolution: [1280, 720]        # Camera resolution [width, height]
-  fps: 30                        # Frames per second
-
-# Detection settings
-detection:
-  min_contour_area: 1000         # Minimum contour area for vehicle detection
-  # Counting line defined as [[x1, y1], [x2, y2]] using ratios (0.0-1.0)
-  # Example: Top-left to bottom-right diagonal
-  counting_line: [[0.2, 1.0], [0.9, 0.0]]
-  detect_shadows: true           # Whether to detect shadows in background subtraction
-
-# Storage settings
-storage:
-  local_database_path: "data/database.sqlite"  # Path to local SQLite database
-  retention_days: 30                          # How long to keep data locally
-  use_cloud_storage: true                     # Whether to use cloud storage
-  sync_enabled: true                          # Whether to sync data to cloud
-
-# System settings
-log_path: "logs/traffic_monitor.log"  # Path to log file
-log_level: "INFO"                     # Logging level (DEBUG, INFO, WARNING, ERROR)
+# Local overrides (not meant to be identical to default.yaml).
+#
+# The application loads `config/default.yaml` first, then overlays this file if present.
+# Put only the keys you want to override here.
+#
+# Example:
+#
+# camera:
+#   backend: "opencv"
+#   device_id: 0
+#
+# detection:
+#   backend: "yolo"
+#   yolo:
+#     model: "yolov8n.pt"

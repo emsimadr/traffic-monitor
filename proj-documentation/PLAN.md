@@ -1,308 +1,425 @@
-# Neighborhood Traffic Monitoring System - Development Plan
-
-This document outlines the development approach, milestone goals, implementation details, and expected benefits for the Neighborhood Traffic Monitoring System project.
-
-## Development Philosophy
-
-This project follows these key development principles:
+# Neighborhood Traffic Monitoring System — Plan
 
-1. **Progressive Enhancement**: Each milestone builds upon previous ones without requiring major architectural changes
-2. **Edge-Cloud Synergy**: Leveraging Raspberry Pi for edge processing and GCP for cloud analytics
-3. **Data-Driven Advocacy**: All technical decisions prioritize generating compelling evidence for traffic calming
-4. **Privacy-Respecting Design**: Collecting traffic data without compromising personal privacy
-5. **Resilient Implementation**: System works even during connectivity interruptions
-6. **Maintainable Architecture**: Clean, modular code that can be extended by community contributors
+This `PLAN.md` is the living roadmap for building a **privacy-respecting, evidence-grade** traffic monitoring system that runs on an edge device (e.g., Raspberry Pi) and optionally syncs summarized results to Google Cloud.
 
-## Development Approach
+---
 
-The project employs a milestone-based approach where:
+## Project Overview
 
-- Each milestone delivers concrete, measurable functionality
-- Testing occurs at both component and system levels
-- Documentation is maintained alongside code development
-- Periodic reviews ensure alignment with project goals
-- Technical debt is addressed before moving to the next milestone
+### What we’re building
 
-## Project Milestones
-
-### Milestone 1: Core Vehicle Detection & Data Collection
-
-**Goal**: Establish the foundation for vehicle detection and create the hybrid edge-cloud architecture.
-
-**Implementation Details**:
-- Set up Raspberry Pi with camera in optimal viewing position
-- Implement background subtraction-based vehicle detection
-- Develop SQLite database for local storage
-- Create GCP project structure (BigQuery, Cloud Storage)
-- Implement cloud synchronization with retry mechanisms
-- Develop basic data aggregation (hourly, daily counts)
+- A system that continuously captures a street-facing video stream, detects and tracks traffic participants, and records counts (and later: speed distributions, vulnerable road users, and movement patterns).
+- A hybrid architecture:
+  - **Edge**: real-time detection + local buffering/storage so data collection continues without internet.
+  - **Cloud (optional)**: long-term storage and analytics (BigQuery) + artifacts (Cloud Storage) to support dashboards and advocacy.
 
-**Testing Criteria**:
-- Camera successfully captures clear view of street
-- Vehicle detection accuracy >85% in daylight conditions
-- Data correctly stored in local SQLite database
-- Successful data synchronization with GCP
-- System handles network interruptions gracefully
-
-**Expected Benefits**:
-- Baseline traffic volume data for different times/days
-- Initial evidence of traffic patterns for community meetings
-- Foundation for all future detection enhancements
-- Proof of concept for the edge-cloud architecture
-
-**Estimated Timeline**: 2-3 weeks
-
-### Milestone 2: Speed Measurement System
-
-**Goal**: Add vehicle speed calculation to provide quantitative evidence of speeding issues.
-
-**Implementation Details**:
-- Implement camera calibration for accurate distance measurement
-- Set up multiple detection zones to track vehicle movement
-- Create algorithms for speed calculation based on time between zones
-- Extend database schema to include speed data
-- Add speed statistics to cloud data model
-- Develop speed visualization components
-
-**Testing Criteria**:
-- Speed calculations accurate within 5 mph (compared to reference measurements)
-- Successful recording of speed data in database
-- Speed histogram visualization functions correctly
-- System handles varying light conditions reasonably well
-
-**Expected Benefits**:
-- Concrete evidence of speeding frequency and severity
-- Distribution curves showing traffic speed patterns
-- Identification of peak speeding hours/days
-- Data to counter "it's just a few speeders" arguments
-
-**Estimated Timeline**: 3-4 weeks
-
-### Milestone 3: Pedestrian Detection & Classification
-
-**Goal**: Identify and classify pedestrians to quantify vulnerable road user exposure.
-
-**Implementation Details**:
-- Implement pedestrian detection using HOG or neural network approaches
-- Add classification for adults, children, mobility devices, etc.
-- Extend database schema for pedestrian data
-- Develop pedestrian-vehicle interaction tracking
-- Create synchronization for new data types to cloud
-- Implement privacy protections (no facial recognition, blurring)
-
-**Testing Criteria**:
-- Pedestrian detection accuracy >80%
-- Classification accuracy >75%
-- Successful database integration and cloud synchronization
-- Privacy protections function as expected
-
-**Expected Benefits**:
-- Quantification of pedestrian activity on the street
-- Evidence of children's presence in the traffic environment 
-- Data on pedestrian-vehicle conflict points
-- Strengthened case for vulnerable road user protection
-
-**Estimated Timeline**: 4-5 weeks
-
-### Milestone 4: Bicycle Detection Integration
-
-**Goal**: Incorporate bicycle detection to build a comprehensive multi-modal traffic analysis.
-
-**Implementation Details**:
-- Implement bicycle-specific detection algorithms
-- Differentiate between recreational and transportation cycling
-- Track bicycle positioning (road position vs. sidewalk)
-- Extend database schema for bicycle data
-- Enhance synchronization processes for new data types
-- Create integrated multi-modal visualizations
-
-**Testing Criteria**:
-- Bicycle detection accuracy >80%
-- Successful differentiation from other road users
-- Integration with existing vehicle and pedestrian detection
-- Complete data flow to cloud analytics
-
-**Expected Benefits**:
-- Documentation of bicycle usage patterns
-- Evidence for cycling infrastructure needs
-- Multi-modal conflict analysis
-- Comprehensive road user mix data
-
-**Estimated Timeline**: 3-4 weeks
-
-### Milestone 5: Path Tracking & Heatmap Visualization
-
-**Goal**: Map movement patterns to identify high-risk road sections and behaviors.
-
-**Implementation Details**:
-- Implement object tracking across video frames
-- Create path reconstruction algorithms
-- Develop heatmap generation for different user types
-- Build path analysis algorithms in GCP
-- Create visualization components for path data
-- Implement clustering for behavior pattern recognition
-
-**Testing Criteria**:
-- Accurate tracking of objects across frames
-- Successful path reconstruction for >80% of road users
-- Meaningful heatmap generation
-- Correct identification of common patterns
-
-**Expected Benefits**:
-- Visual evidence of problematic street sections
-- Identification of near-miss locations
-- Documentation of evasive maneuvers and risk areas
-- Compelling visual evidence for presentations
-
-**Estimated Timeline**: 4-5 weeks
-
-### Milestone 6: System Integration & Refinement
-
-**Goal**: Enhance system reliability, accuracy, and performance across all components.
-
-**Implementation Details**:
-- Optimize detection algorithms for better performance
-- Implement weather and lighting condition adaptation
-- Enhance error recovery mechanisms
-- Improve cloud processing efficiency
-- Add system health monitoring and alerts
-- Create comprehensive logging and diagnostics
-
-**Testing Criteria**:
-- System operates reliably 24/7
-- Graceful handling of environmental changes
-- Performance optimization measurably reduces resource usage
-- Monitoring correctly identifies and alerts on issues
-
-**Expected Benefits**:
-- More reliable long-term data collection
-- Improved accuracy across varying conditions
-- Higher quality evidence for advocacy
-- Reduced maintenance requirements
-
-**Estimated Timeline**: 3-4 weeks
-
-### Milestone 7: Advanced Features & Expansion
-
-**Goal**: Add sophisticated analysis capabilities and explore multi-camera support.
-
-**Implementation Details**:
-- Implement machine learning enhancements for detection
-- Add behavior pattern recognition (e.g., dangerous maneuvers)
-- Create anomaly detection for unusual events
-- Explore multi-camera support for wider coverage
-- Implement advanced cloud-based analytics
-- Add predictive modeling capabilities
-
-**Testing Criteria**:
-- ML enhancements improve detection accuracy
-- Behavior patterns correctly identified
-- Seamless integration of any additional cameras
-- Advanced analytics produce meaningful insights
-
-**Expected Benefits**:
-- Deeper insights into traffic patterns and behaviors
-- Identification of subtle safety issues
-- Predictive capabilities for traffic management
-- Expanded coverage area (with multiple cameras)
-
-**Estimated Timeline**: 5-6 weeks
-
-### Milestone 8: Data Presentation & Advocacy
-
-**Goal**: Create compelling visualizations and reports for effective advocacy.
-
-**Implementation Details**:
-- Develop comprehensive dashboard in Looker Studio
-- Create report generation functionality
-- Implement interactive visualizations for presentations
-- Add comparative analysis with traffic standards
-- Develop before/after simulation capabilities
-- Create exportable data packages for sharing
-
-**Testing Criteria**:
-- Dashboards clearly communicate key findings
-- Reports highlight the most relevant data
-- Visualizations are intuitive and compelling
-- Data can be effectively shared with stakeholders
-
-**Expected Benefits**:
-- Professional-quality evidence for municipal meetings
-- Clear communication of complex traffic patterns
-- Compelling case for specific interventions
-- Measurable baseline for future comparisons
-
-**Estimated Timeline**: 3-4 weeks
-
-## Project Timeline Overview
-
-Below is the estimated overall timeline for the project:
-
-| Milestone | Description | Duration | Dependencies |
-|-----------|-------------|----------|--------------|
-| 1 | Core Vehicle Detection & Data Collection | 2-3 weeks | None |
-| 2 | Speed Measurement System | 3-4 weeks | Milestone 1 |
-| 3 | Pedestrian Detection & Classification | 4-5 weeks | Milestone 1 |
-| 4 | Bicycle Detection Integration | 3-4 weeks | Milestone 1, 3 |
-| 5 | Path Tracking & Heatmap Visualization | 4-5 weeks | Milestone 1, 2, 3, 4 |
-| 6 | System Integration & Refinement | 3-4 weeks | Milestone 1-5 |
-| 7 | Advanced Features & Expansion | 5-6 weeks | Milestone 1-6 |
-| 8 | Data Presentation & Advocacy | 3-4 weeks | Milestone 1-7 |
-
-**Total Estimated Project Duration**: 27-35 weeks (approximately 6-8 months)
-
-Note: Milestones can overlap where appropriate, potentially reducing total timeline.
-
-## Risk Mitigation
-
-| Risk | Impact | Mitigation Strategy |
-|------|--------|---------------------|
-| Camera view obstruction | High | Multiple mounting options, periodic checks |
-| Poor lighting conditions | Medium | Implement night mode, IR illumination option |
-| Network connectivity issues | Medium | Robust local buffering, batch synchronization |
-| Raspberry Pi performance limitations | Medium | Code optimization, reduced resolution option |
-| Weather-related hardware issues | Medium | Weatherproof housing, temperature monitoring |
-| Privacy concerns from neighbors | High | Clear communication, data anonymization, local processing |
-| GCP costs exceeding budget | Medium | Monitoring, throttling, data retention policies |
-| Hardware failure | High | Regular backups, spare components |
-
-## Success Metrics
-
-The project will be considered successful when:
-
-1. **Data Collection**:
-   - System reliably collects traffic data 24/7
-   - Multiple road user types are accurately detected
-   - Speed data shows clear patterns and violations
-
-2. **Evidence Quality**:
-   - Visualizations clearly demonstrate traffic issues
-   - Data withstands scrutiny from city officials
-   - Evidence covers all relevant safety concerns
-
-3. **Community Impact**:
-   - Data helps build community consensus on issues
-   - Evidence is used in official traffic planning
-   - Project contributes to implementation of safety measures
-
-4. **Technical Performance**:
-   - System maintains >95% uptime
-   - Detection accuracy exceeds 85% across conditions
-   - Cloud integration functions reliably
-   - Privacy protections work as intended
-
-## Beyond the Project
-
-After completing all milestones, potential next steps include:
-
-1. **Open Source Expansion**: Publish as a complete open-source toolkit for other neighborhoods
-2. **Network Deployment**: Connect multiple systems across a neighborhood
-3. **Integration with City Systems**: Explore data sharing with municipal traffic management
-4. **Automated Advocacy**: Create automated reports to relevant officials
-5. **Real-time Alerts**: Implement notification system for dangerous conditions
-6. **Historical Analysis**: Develop tools for long-term trend analysis
-7. **Before/After Studies**: Document the impact of implemented traffic calming measures
-
-## Conclusion
-
-This development plan provides a structured approach to creating a comprehensive traffic monitoring system that generates actionable evidence while respecting privacy and technical constraints. Each milestone delivers increasing value while building on a solid foundation, ultimately creating a powerful tool for data-driven traffic safety advocacy.
+### Scope and non-goals (important)
+
+**In scope (near term):**
+
+- Vehicle counting with direction and time-of-day patterns.
+- Speed measurement with a documented, repeatable calibration/validation process.
+- Privacy-first summaries suitable for sharing externally.
+- Heatmaps that show where traffic actually flows over time.
+
+**Explicit non-goals (unless you later choose otherwise):**
+
+- Identifying individuals, license plates, or faces.
+- Real-time enforcement or “catching” specific drivers.
+- Storing continuous raw video long-term (short validation clips only, by default).
+
+### Why it matters (core motivation)
+
+We need **credible quantitative evidence** (counts, patterns, and eventually speeds and conflicts) to support traffic calming advocacy and to withstand scrutiny from municipal stakeholders—without turning the project into surveillance.
+
+### What’s already implemented (current repo status)
+
+Milestone 1 foundation exists:
+
+- **Capture (current)**: USB camera index or RTSP URL, with retry logic (`src/camera/capture.py`).
+- **Detection**: background-subtraction-based vehicle detection (`src/detection/vehicle.py`).
+- **Tracking**: IoU-based tracking to prevent double counting and infer crossing direction (`src/detection/tracker.py`).
+- **Storage**: SQLite + hourly/daily aggregates + retention cleanup (`src/storage/database.py`).
+- **Cloud sync (optional)**: periodic background sync to BigQuery + video sample upload to Cloud Storage (`src/cloud/sync.py`).
+
+---
+
+## Hardware and Deployment Target (AI-first)
+
+This section reflects the **target deployment** you want to move to. Where something is not yet implemented in code, it is explicitly marked as “planned.”
+
+### Primary target hardware
+
+- Raspberry Pi 5 (16GB)
+- Raspberry Pi AI HAT+ (Hailo-8 class accelerator)
+- Raspberry Pi Camera Module 3 Wide (CSI)
+- Active cooling + stable 5V power supply (headroom for sustained load)
+- Storage: high-endurance microSD; optional USB SSD later for clip/artifact retention
+
+### Camera strategy
+
+- **Default (planned)**: CSI camera via `Picamera2` / libcamera pipeline (lower overhead, better stability on Pi).
+- **Fallback (current)**: USB webcam or RTSP IP camera via OpenCV (`src/camera/capture.py`).
+
+### Detection strategy
+
+- **Default (planned)**: YOLO-family detector on the AI HAT+ backend.
+- **Fallback (current)**: classical CV background subtraction (`src/detection/vehicle.py`) for baseline comparison and troubleshooting.
+
+---
+
+## How the System Works (today)
+
+This section is intended to be “handoff-friendly” for someone new.
+
+### Runtime flow
+
+- `src/main.py` loads `config/config.yaml` (and `config/cloud_config.yaml` if present), configures logging, then runs an infinite frame loop.
+- Each frame:
+  - is read from `VideoCapture` (USB index or RTSP URL with retry/backoff),
+  - is passed to `VehicleDetector.detect()` (background subtraction + morphological cleanup + contour filtering + heuristics),
+  - produces bounding boxes which are fed to `VehicleTracker.update()` (IoU matching + “line side change” crossing logic),
+  - writes counted crossings into SQLite (`vehicle_detections`) and periodically updates aggregates (`hourly_counts`, `daily_counts`).
+- If cloud is enabled, a background thread periodically syncs unsynced rows to BigQuery and can upload occasional video samples to Cloud Storage.
+
+### Detection heuristics already in play (so we don’t forget them)
+
+- Road-area filter: detection centers must be between ~20% and ~95% of frame height.
+- Stationary-object filter: removes boxes that don’t move more than a small threshold between frames.
+- Box merging: merges nearby/overlapping detections to reduce fragmentation.
+
+---
+
+## How the System Works (target runtime flow — planned)
+
+This is the intended “default path” once the Pi 5 + AI HAT+ stack is wired in, while keeping classical CV as a fallback.
+
+### Planned runtime flow
+
+- `src/main.py` loads `config/config.yaml` (and `config/cloud_config.yaml` if present), configures logging, then runs an infinite loop.
+- Each frame (or every Nth frame if frame-skipping is enabled):
+  1. **Capture**: read frame from CSI camera (preferred) or RTSP/USB fallback, with retry/backoff.
+  2. **Preprocess**: apply ROI cropping and optional resize.
+  3. **Detect**: run a YOLO-family detector using the active backend:
+     - Primary backend (planned): AI HAT+ (Hailo runtime)
+     - Dev/fallback backend (planned): CPU (baseline / portability)
+  4. **Track**: detection-driven tracker (planned upgrade):
+     - ByteTrack-style association (high/low confidence matching)
+     - Track lifecycle (tentative → confirmed → lost → removed)
+  5. **Analytics**:
+     - Counting: line crossings with direction (+ class once available)
+     - Speed (planned): calibrated ground-plane displacement over time
+     - Heatmap (planned): time-bucketed occupancy grids (image-plane quick mode; bird’s-eye preferred)
+  6. **Persist**:
+     - Store privacy-minimized events + aggregates to SQLite
+     - Optionally retain short validation clips and calibration artifacts with retention rules
+  7. **Cloud sync (optional)**:
+     - Periodic sync to BigQuery
+     - Optional upload of validation artifacts to Cloud Storage
+
+---
+
+## Problems to Solve
+
+### Data quality & credibility
+
+- **Counting accuracy**: avoid double counts, missed detections, and shadow/lighting artifacts.
+- **Direction correctness**: ensure “northbound/southbound” mapping matches real-world direction.
+- **Calibration & speed**: define an approach for speed measurement that is defensible and repeatable.
+
+### Reliability & operations
+
+- **24/7 stability**: handle camera dropouts, reboots, network interruptions, and storage limits.
+- **Safe upgrades**: configuration changes should not break long-running deployments.
+- **Observability**: logs, health indicators, and lightweight alerting for failures.
+
+### Privacy & community trust
+
+- **Minimize sensitive data**: avoid collecting identifiable imagery by default.
+- **Retention policy**: only keep raw video when necessary (e.g., short samples for validation), and expire it.
+- **Transparency**: clear communication of what is collected and why.
+
+### Advocacy outputs
+
+- **Stakeholder-ready summaries**: charts and narratives that clearly show the problem (volumes, peaks, speeding frequency, etc.).
+- **Before/after comparisons**: ability to compare conditions around interventions (signage, speed bumps, etc.).
+ - **Heatmap credibility**: produce visuals that are compelling but also defensible (image-plane vs bird’s-eye).
+
+---
+
+## Assumptions & Constraints
+
+- **Fixed camera**: the counting line and ROI assume a stable mount; even small shifts can change counts.
+- **Environment variability**: sun/shadows/rain/night impact all methods; AI detectors are typically more robust than background subtraction but still need validation.
+- **Edge compute**: Raspberry Pi class hardware may require lower FPS, lower resolution, and ROI cropping for stability.
+- **Time accuracy**: timestamps are system time; if the device clock drifts, day/hour aggregations drift too (consider NTP).
+- **Privacy posture**: default should be “store minimal data needed for evidence,” not “store everything just in case.”
+
+---
+
+## Choices to Be Made (Decisions)
+
+These are the key decisions that affect architecture, cost, and credibility. Each should be decided and recorded before expanding scope.
+
+### Camera and placement
+
+- **Camera type**:
+  - Option A (planned default): CSI camera (Picamera2/libcamera)
+  - Option B: RTSP IP camera (long cable-free placements; supported today)
+  - Option C: USB webcam (simple, local; supported today)
+- **Mounting/angle**:
+  - Choose: view covering lanes + a clear counting line region with minimal occlusion.
+- **Night strategy**:
+  - Choose: accept reduced accuracy at night vs add IR illumination vs use higher-sensitivity camera.
+
+### Counting line semantics
+
+- **Line geometry**:
+  - Choose: horizontal line (simple) vs diagonal line (supported today)
+- **Direction mapping**:
+  - Choose: confirm which side transition corresponds to which real direction and document it.
+
+### Detection approach (now vs later)
+
+- **Now (baseline)**: background subtraction + contour filtering (already implemented).
+- **Planned default**: YOLO-family detection (AI HAT+; CPU fallback for development).
+- **Later options**:
+  - Option A: classical CV improvements (morphology, perspective ROI, adaptive thresholds)
+  - Option B: upgraded tracking (ByteTrack) and calibration-driven analytics
+
+### Speed measurement methodology
+
+- **Option A (defensible, moderate complexity)**: calibrated ground-plane + track displacement over time.
+- **Option B (simple, less accurate)**: zone-to-zone timing between two reference lines.
+- **Choice needed**: which method meets “city-scrutiny” requirements with acceptable effort.
+
+### Cloud posture (cost & governance)
+
+- **Cloud mode**:
+  - Option A: local-only (no internet required; simplest privacy)
+  - Option B: sync aggregates + detections to BigQuery (supported today)
+  - Option C: store raw video in cloud (not recommended by default)
+- **Cost controls**:
+  - Choose: retention windows, sampling rate for video, BigQuery partitioning strategy, alerting thresholds.
+
+### Data model boundaries
+
+- **What is a “detection event”?** (currently: each counted crossing with timestamp + direction)
+- **What should be aggregated?** (hourly/daily counts are implemented; decide weekly/monthly + peak hour summaries)
+- **What “evidence artifacts” do we keep?** (e.g., calibration images, short validation clips)
+
+---
+
+## Data Contracts (Schemas & Meaning)
+
+This is the contract between edge capture/detection and downstream analytics. Keep it stable; version it when it changes.
+
+### SQLite tables (implemented)
+
+- **`vehicle_detections`**
+  - **Meaning**: one row per counted crossing of the counting line (not one row per frame detection).
+  - **Key fields**:
+    - `timestamp` (REAL): unix epoch seconds
+    - `date_time` (TEXT): human-readable timestamp
+    - `direction` (TEXT): `"northbound" | "southbound" | "unknown"`
+    - `cloud_synced` (INTEGER): 0/1
+
+- **`hourly_counts`**
+  - **Meaning**: derived hourly totals computed from `vehicle_detections`.
+  - **Key fields**: `hour_beginning`, `vehicle_count`, `cloud_synced`
+
+- **`daily_counts`**
+  - **Meaning**: derived daily totals computed from `vehicle_detections`.
+  - **Key fields**: `date`, `vehicle_count`, `cloud_synced`
+
+### BigQuery tables (implemented when cloud enabled)
+
+BigQuery tables mirror the SQLite tables above (via `src/cloud/sync.py`), with the same semantic meaning.
+
+---
+
+## Recommended Data Model Additions (planned; privacy-preserving)
+
+These additions enable class counts, speed distributions, and heatmaps without storing per-frame imagery.
+
+- **`track_summaries` (planned)**:
+  - One row per completed track (not per frame)
+  - Suggested fields: `start_ts`, `end_ts`, `class`, `direction`, `min_conf`, `track_length_frames`, `mean_speed`, `p95_speed`, `speed_confidence`
+
+- **`speed_aggregates` (planned)**:
+  - Time-bucketed distributions by class/direction
+  - Suggested fields: `bucket_start`, `class`, `direction`, `n`, `median`, `p85`, `p95`, `pct_over_limit`
+
+- **`heatmap_tiles` (planned)**:
+  - Time-bucketed compressed grids + metadata
+  - Suggested fields: `bucket_start`, `class`, `mode` (`image_plane|birdseye`), `grid_blob`, `grid_metadata_json`
+
+---
+
+## Validation & QA (How we know the numbers are trustworthy)
+
+If this project is used for advocacy, validation is not optional.
+
+### Baseline validation procedure (recommended)
+
+- **Pick sampling windows**: e.g., 3 × 10-minute windows across different lighting conditions.
+- **Ground truth**: human count crossings from a short saved clip or live observation.
+- **Compare**:
+  - False positives (system counted, human did not)
+  - False negatives (human counted, system did not)
+  - Direction accuracy
+- **Acceptable targets (initial)**:
+  - Daylight vehicle counting accuracy: target ≥ 85% (tune thresholds/ROI until achieved)
+  - Direction accuracy: target ≥ 90% in validated windows
+
+### Continuous drift checks
+
+- Re-run a short validation sample after any camera repositioning, seasonal lighting change, or parameter tuning.
+
+---
+
+## Milestones (AI-first reordered, with Done Criteria)
+
+Milestones are ordered to maximize advocacy value early while keeping scope controlled.
+
+### Milestone 0 — Deployment readiness
+
+**Goal**: make the system safe to run unattended.
+
+**Done criteria**:
+- Runs headless for 72 hours without manual intervention.
+- Auto-recovers from camera read failures and network outages.
+- Documented setup steps (camera, config, secrets, startup).
+
+### Milestone 1 — AI-based detection + robust tracking + core counting
+
+**Goal**: counting by class and direction is credible and stable.
+
+**Done criteria**:
+- YOLO backend active (CPU baseline in dev; AI HAT+ on device).
+- Tracking prevents double counts (upgrade path: ByteTrack-style association).
+- Counts recorded in SQLite; aggregates maintained.
+- Cloud sync works when enabled; local-only mode works when disabled.
+- Validation procedure exists and targets are met.
+
+### Milestone 2 — Speed measurement (calibrated)
+
+**Goal**: produce speed distributions and speeding rates.
+
+**Done criteria**:
+- Camera calibration documented and repeatable.
+- Speed estimates validated against a reference method (e.g., radar sign / pacing / known-distance timing).
+- Speed histogram + percentile summaries available (local export and/or BigQuery).
+
+### Milestone 3 — Pedestrian detection (privacy-first)
+
+**Goal**: quantify vulnerable road user exposure without identification.
+
+**Done criteria**:
+- Pedestrian counts and time-of-day patterns captured with acceptable accuracy in daylight.
+- Privacy policy documented (no identity, no face recognition, minimal retention of raw imagery).
+
+### Milestone 4 — Bicycle detection
+
+**Goal**: quantify cycling volumes and patterns (where feasible).
+
+**Done criteria**:
+- Bicycle counts available and distinguished from pedestrians/vehicles with acceptable error rate.
+- Dashboards can show modal split (vehicle vs pedestrian vs bicycle).
+
+### Milestone 5 — Paths/heatmaps (optional, evidence enhancer)
+
+**Goal**: time-bucketed movement heatmaps; bird’s-eye preferred once calibration exists.
+
+**Done criteria**:
+- Track trajectories can be aggregated into coarse heatmaps without storing identifiable imagery.
+- Heatmaps are stable enough to show patterns across days/weeks.
+
+### Milestone 6 — Reliability, monitoring, and cost controls
+
+**Goal**: make long-term operation cheap and boring.
+
+**Done criteria**:
+- >95% uptime over 30 days.
+- Clear alerting for camera offline / sync failure / disk usage.
+- Retention policies enforced for local and cloud data.
+
+### Milestone 7 — Advocacy packaging
+
+**Goal**: turn data into stakeholder-ready materials.
+
+**Done criteria**:
+- A standard set of charts and a “one-page summary” can be generated for a chosen time window.
+- Before/after comparison process defined and repeatable.
+- Exports suitable for sharing (CSV + PDF/slide-ready images).
+
+---
+
+## Operations Runbook (Practical “how to run this”)
+
+### Configuration files
+
+- `config/config.yaml`: camera source, resolution/FPS, detection thresholds, counting line, retention, logging.
+- `config/cloud_config.yaml`: GCP project/bucket/dataset/table names and sync interval/retry settings.
+- `secrets/`:
+  - `camera_secrets.yaml` (if using RTSP credentials injection)
+  - `gcp-credentials.json` (service account key; keep out of git)
+
+### Common commands
+
+- **Run headless**: `python src/main.py --config config/config.yaml`
+- **Run with display** (debug): `python src/main.py --config config/config.yaml --display`
+- **Record samples** (validation): `python src/main.py --config config/config.yaml --record`
+- **Test camera**: `python tools/test_camera.py --device 0`
+- **Test cloud**: `python tools/test_cloud_connection.py --config config/cloud_config.yaml`
+
+### What to do when something goes wrong
+
+- **No frames / intermittent frames**: verify RTSP URL, credentials injection, try switching RTSP transport TCP/UDP, check network stability.
+- **Counts suddenly change**: likely camera moved; re-check counting line placement and rerun validation sampling.
+- **Cloud sync errors**: verify credentials, bucket/dataset existence, service account roles, and review `logs/traffic_monitor.log`.
+
+---
+
+## Timeline (rough)
+
+This can be re-estimated once Milestone 0 “deployment readiness” is validated in the real environment.
+
+- Milestone 0: 1–2 weeks
+- Milestone 1: 0–1 week (mostly complete; focus on validation + docs)
+- Milestone 2: 2–4 weeks
+- Milestone 3–4: 3–6 weeks (depending on method)
+- Milestone 5: 2–5 weeks (optional)
+- Milestone 6: ongoing hardening during all milestones
+- Milestone 7: 1–3 weeks
+
+---
+
+## Risks & Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Camera obstruction / angle drift | High | Stable mount; periodic framing checks; calibration checklist |
+| Lighting/night degradation | Medium–High | ROI tuning; optional IR; accept “daylight-only” metrics initially |
+| Network outages | Medium | Local buffering (already); retry/backoff (already) |
+| Compute limits on Raspberry Pi | Medium | Lower FPS/resolution; ROI cropping; consider DNN only if needed |
+| Privacy concerns | High | Default to aggregates; short validation clips only; retention limits; transparency |
+| GCP costs | Medium | Store aggregates; partition tables; limit video uploads; alerts on spend |
+
+---
+
+## Success Metrics (Definition of “this worked”)
+
+- **Operational**: >95% uptime over 30 days; data collected through outages/reboots.
+- **Data quality**: repeatable validation method; documented expected error bounds.
+- **Advocacy value**: clear peak-hour patterns; (later) speeding distribution + shareable visuals.
+- **Privacy**: no identity tracking; minimal video retention; documented policy and configuration defaults.
+
+---
+
+## Open Questions (Capture decisions here as you learn)
+
+- **Direction semantics**: does the current “northbound/southbound” mapping match the real street directions for your camera view?
+- **Night handling**: do we accept “daylight-only” accuracy for advocacy, or invest in IR / a better sensor / a DNN detector?
+- **Speed method**: zone-to-zone timing vs ground-plane calibration—what level of accuracy is needed to convince your city?
+- **Data retention**: what’s the minimum retention that still supports credible analysis and audits?

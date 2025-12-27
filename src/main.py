@@ -25,37 +25,59 @@ from datetime import datetime
 from typing import Dict, Any, Tuple, Optional
 
 # Import local modules
-from camera.capture import VideoCapture
+from camera.camera import create_camera, inject_rtsp_credentials
+from analytics.counting import compute_counting_line
+from tracking.tracker import VehicleTracker
 from detection.vehicle import VehicleDetector
-from detection.tracker import VehicleTracker
-from storage.database import Database
+from detection.bgsub_detector import BgSubDetector
+from inference.cpu_backend import UltralyticsCpuBackend, CpuYoloConfig
+from storage.db import Database
 from cloud.sync import CloudSync
 from cloud.utils import check_cloud_config
+from ops.logging import setup_logging
+
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge override into base and return base."""
+    for k, v in (override or {}).items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _deep_merge(base[k], v)
+        else:
+            base[k] = v
+    return base
+
 
 def load_config(config_path: str) -> Dict[str, Any]:
-    """Load configuration from YAML file."""
+    """
+    Load configuration with layering:
+    - `config/default.yaml` (checked in)
+    - `config/config.yaml` (local overrides)
+    - plus any explicitly provided `--config` path (treated as overrides)
+    """
     try:
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        return config
+        base_path = os.path.join(os.path.dirname(config_path), "default.yaml")
+        base_cfg: Dict[str, Any] = {}
+        if os.path.exists(base_path):
+            with open(base_path, "r") as f:
+                base_cfg = yaml.safe_load(f) or {}
+
+        local_overrides_path = os.path.join(os.path.dirname(config_path), "config.yaml")
+        local_cfg: Dict[str, Any] = {}
+        if os.path.exists(local_overrides_path):
+            with open(local_overrides_path, "r") as f:
+                local_cfg = yaml.safe_load(f) or {}
+
+        merged = _deep_merge(base_cfg, local_cfg)
+
+        # Finally apply explicit config_path if it's not the local override file itself
+        if os.path.exists(config_path) and os.path.abspath(config_path) != os.path.abspath(local_overrides_path):
+            with open(config_path, "r") as f:
+                explicit_cfg = yaml.safe_load(f) or {}
+            merged = _deep_merge(merged, explicit_cfg)
+
+        return merged
     except Exception as e:
         logging.error(f"Failed to load configuration: {e}")
         sys.exit(1)
-
-def setup_logging(log_path: str, log_level: str) -> None:
-    """Set up logging based on configuration."""
-    log_dir = os.path.dirname(log_path)
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    
-    logging.basicConfig(
-        level=getattr(logging, log_level),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_path),
-            logging.StreamHandler()
-        ]
-    )
 
 def validate_config(config: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     """
@@ -93,13 +115,35 @@ def validate_config(config: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         return False, "Missing camera.fps"
     if not isinstance(camera['fps'], int) or camera['fps'] <= 0:
         return False, "camera.fps must be a positive integer"
+
+    # Optional camera backend selector
+    backend = camera.get('backend', 'opencv')
+    if backend not in ('opencv', 'picamera2'):
+        return False, "camera.backend must be one of: opencv, picamera2"
+    if backend == 'picamera2':
+        # Picamera2 doesn't use device_id; keep backward compat but ignore it.
+        pass
     
     # Validate detection settings
     detection = config.get('detection', {})
     if 'min_contour_area' not in detection:
-        return False, "Missing detection.min_contour_area"
-    if not isinstance(detection['min_contour_area'], int) or detection['min_contour_area'] <= 0:
+        # For YOLO mode this may not be required, but keep backward compatibility.
+        detection.setdefault('min_contour_area', 1000)
+    if not isinstance(detection.get('min_contour_area'), int) or detection.get('min_contour_area') <= 0:
         return False, "detection.min_contour_area must be a positive integer"
+
+    # Detection backend selection (optional; defaults to bgsub)
+    backend = detection.get('backend', 'bgsub')
+    if backend not in ('bgsub', 'yolo'):
+        return False, "detection.backend must be one of: bgsub, yolo"
+    if backend == 'yolo':
+        yolo_cfg = detection.get('yolo', {})
+        if 'model' not in yolo_cfg or not isinstance(yolo_cfg.get('model'), str) or not yolo_cfg.get('model'):
+            return False, "detection.yolo.model is required when detection.backend is 'yolo'"
+        if 'conf_threshold' in yolo_cfg and not isinstance(yolo_cfg['conf_threshold'], (int, float)):
+            return False, "detection.yolo.conf_threshold must be a number"
+        if 'iou_threshold' in yolo_cfg and not isinstance(yolo_cfg['iou_threshold'], (int, float)):
+            return False, "detection.yolo.iou_threshold must be a number"
     
     # Counting line can be a float (0-1, Y-position) or a list of two points [[x1,y1], [x2,y2]]
     if 'counting_line' in detection:
@@ -151,27 +195,11 @@ def main():
     # Load configuration
     config = load_config(args.config)
     
-    # Handle camera credentials if secrets_file is provided
-    if isinstance(config['camera']['device_id'], str) and 'secrets_file' in config['camera']:
-        try:
-            secrets_path = config['camera']['secrets_file']
-            if os.path.exists(secrets_path):
-                with open(secrets_path, 'r') as f:
-                    secrets = yaml.safe_load(f)
-                
-                device_url = config['camera']['device_id']
-                if 'username' in secrets and 'password' in secrets:
-                    # Inject credentials into RTSP URL
-                    # Assumes format rtsp://ip/path -> rtsp://user:pass@ip/path
-                    if device_url.startswith("rtsp://"):
-                        protocol, rest = device_url.split("://", 1)
-                        auth_url = f"{protocol}://{secrets['username']}:{secrets['password']}@{rest}"
-                        config['camera']['device_id'] = auth_url
-                        logging.info("Injected camera credentials from secrets file")
-            else:
-                logging.warning(f"Secrets file not found: {secrets_path}")
-        except Exception as e:
-            logging.error(f"Error loading camera secrets: {e}")
+    # Handle RTSP camera credentials if secrets_file is provided
+    try:
+        inject_rtsp_credentials(config["camera"])
+    except Exception as e:
+        logging.error(f"Error loading camera secrets: {e}")
 
     # Validate configuration
     is_valid, error_msg = validate_config(config)
@@ -238,18 +266,27 @@ def main():
                 cloud_sync = None
         
         # Initialize camera
-        camera = VideoCapture(
-            device_id=config['camera']['device_id'],
-            resolution=tuple(config['camera']['resolution']),
-            fps=config['camera']['fps'],
-            rtsp_transport=config['camera'].get('rtsp_transport', 'tcp')
-        )
+        camera = create_camera(config['camera'])
         
         # Initialize vehicle detector
-        detector = VehicleDetector(
-            min_contour_area=config['detection']['min_contour_area'],
-            detect_shadows=config['detection']['detect_shadows']
-        )
+        detector_backend = config['detection'].get('backend', 'bgsub')
+        if detector_backend == 'yolo':
+            ycfg = config['detection'].get('yolo', {})
+            detector = UltralyticsCpuBackend(
+                CpuYoloConfig(
+                    model=ycfg['model'],
+                    conf_threshold=float(ycfg.get('conf_threshold', 0.25)),
+                    iou_threshold=float(ycfg.get('iou_threshold', 0.45)),
+                    classes=ycfg.get('classes'),
+                    class_name_overrides=ycfg.get('class_name_overrides'),
+                )
+            )
+        else:
+            vehicle_detector = VehicleDetector(
+                min_contour_area=config['detection']['min_contour_area'],
+                detect_shadows=config['detection']['detect_shadows']
+            )
+            detector = BgSubDetector(vehicle_detector)
         
         # Initialize vehicle tracker
         tracker = VehicleTracker(
@@ -308,20 +345,13 @@ def main():
             consecutive_frame_failures = 0
             
             # Process frame for vehicle detection
-            vehicles = detector.detect(frame)
+            detections = detector.detect(frame)
+            # Tracker expects Nx4 array of bboxes
+            vehicles = np.array([[d.x1, d.y1, d.x2, d.y2] for d in detections], dtype=float) if detections else np.array([])
             
             # Calculate counting line in pixels
             frame_height, frame_width = frame.shape[:2]
-            
-            if isinstance(counting_config, (int, float)):
-                # Horizontal line case
-                line_y = int(frame_height * counting_config)
-                counting_line = [(0, line_y), (frame_width, line_y)]
-            else:
-                # Diagonal line case
-                p1 = (int(counting_config[0][0] * frame_width), int(counting_config[0][1] * frame_height))
-                p2 = (int(counting_config[1][0] * frame_width), int(counting_config[1][1] * frame_height))
-                counting_line = [p1, p2]
+            counting_line = compute_counting_line(counting_config, frame_width, frame_height)
             
             # Update tracker and get vehicles that crossed the line
             vehicles_to_count = tracker.update(vehicles, counting_line)
@@ -351,7 +381,7 @@ def main():
                 
                 # Draw tracked vehicles with IDs
                 for tracked_vehicle in tracker.get_active_tracks():
-                    x1, y1, x2, y2 = tracked_vehicle.bbox
+                    x1, y1, x2, y2 = map(int, tracked_vehicle.bbox)
                     color = (255, 0, 0) if tracked_vehicle.has_been_counted else (0, 255, 0)
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                     # Draw vehicle ID

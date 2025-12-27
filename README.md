@@ -189,8 +189,9 @@ pip3 install -r requirements.txt
 
 ### 4. Configure System
 
-1. Edit settings in `config/config.yaml` to match your hardware setup
-2. Configure cloud integration in `config/cloud_config.yaml`
+1. Edit settings in `config/config.yaml` to match your hardware setup (overrides)
+2. Review defaults in `config/default.yaml` (checked in)
+3. Configure cloud integration in `config/cloud_config.yaml`
 3. Position webcam to properly view the street
 4. Test camera connection:
    ```
