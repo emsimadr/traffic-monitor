@@ -35,6 +35,9 @@ from storage.db import Database
 from cloud.sync import CloudSync
 from cloud.utils import check_cloud_config
 from ops.logging import setup_logging
+from web.app import create_app
+from web.state import state as web_state
+import threading
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively merge override into base and return base."""
@@ -267,6 +270,19 @@ def main():
         
         # Initialize camera
         camera = create_camera(config['camera'])
+
+        # Initialize Web Interface
+        web_state.set_database(db)
+        web_state.set_config(config, args.config)
+        web_state.update_system_stats({"start_time": time.time()})
+        
+        def run_web_app():
+            app = create_app()
+            app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+            
+        web_thread = threading.Thread(target=run_web_app, daemon=True)
+        web_thread.start()
+        logging.info("Web interface started on port 5000")
         
         # Initialize vehicle detector
         detector_backend = config['detection'].get('backend', 'bgsub')
@@ -346,6 +362,13 @@ def main():
             
             # Process frame for vehicle detection
             detections = detector.detect(frame)
+            
+            # Update web interface with latest frame
+            web_state.set_frame(frame)
+            web_state.update_system_stats({
+                "fps": camera.get_fps() if hasattr(camera, 'get_fps') else config['camera']['fps']
+            })
+
             # Tracker expects Nx4 array of bboxes
             vehicles = np.array([[d.x1, d.y1, d.x2, d.y2] for d in detections], dtype=float) if detections else np.array([])
             
