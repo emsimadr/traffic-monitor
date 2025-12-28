@@ -1,9 +1,11 @@
 """
 Vehicle tracking module for tracking vehicles across video frames.
 
-This module implements a simple tracking system to prevent double-counting
-by tracking vehicles across frames and counting them only once when they
-cross the counting line.
+This module implements a simple IoU-based tracking system. It maintains
+trajectory history for each track, which the counting strategy (e.g.,
+GateCounter) can use to determine line crossings and directions.
+
+Note: Counting is NOT done here. Use `analytics.counter.GateCounter` for that.
 """
 
 import logging
@@ -20,18 +22,21 @@ class TrackedVehicle:
     bbox: Tuple[int, int, int, int]  # (x1, y1, x2, y2)
     center: Tuple[float, float]  # (cx, cy)
     frames_since_seen: int
-    direction: Optional[str]  # "northbound", "southbound", or None
-    has_been_counted: bool
+    direction: Optional[str]  # Set by counter, not tracker
+    has_been_counted: bool  # Set by counter, not tracker
     trajectory: deque  # History of center positions
 
 
 class VehicleTracker:
     """
-    Tracks vehicles across frames to prevent double-counting.
+    Tracks vehicles across frames using IoU-based matching.
     
-    Uses IoU (Intersection over Union) to match detections across frames
-    and tracks vehicle movement to determine direction and count vehicles
-    only once when they cross the counting line.
+    This tracker is responsible for:
+    - Matching detections to existing tracks using IoU
+    - Maintaining trajectory history for each track
+    - Removing stale tracks
+    
+    Counting logic is handled separately by the counter strategy.
     """
     
     def __init__(
@@ -46,8 +51,7 @@ class VehicleTracker:
         Args:
             max_frames_since_seen: Maximum frames a vehicle can be missing
                                    before being removed from tracking
-            min_trajectory_length: Minimum trajectory points needed to
-                                   determine direction
+            min_trajectory_length: Minimum trajectory points for valid tracking
             iou_threshold: Minimum IoU value to match detections across frames
         """
         self.max_frames_since_seen = max_frames_since_seen
@@ -56,35 +60,20 @@ class VehicleTracker:
         
         self.tracked_vehicles: Dict[int, TrackedVehicle] = {}
         self.next_vehicle_id = 0
-        self.counting_line: Optional[List[Tuple[int, int]]] = None
         
         logging.info("Vehicle tracker initialized")
     
-    def set_counting_line(self, line: List[Tuple[int, int]]):
+    def update(self, detections: np.ndarray, counting_line: Optional[List[Tuple[int, int]]] = None) -> List:
         """
-        Set the counting line as a list of two points [(x1, y1), (x2, y2)].
-        
-        Args:
-            line: List of two points defining the line
-        """
-        self.counting_line = line
-        logging.debug(f"Counting line set to {line}")
-    
-    def update(self, detections: np.ndarray, counting_line: List[Tuple[int, int]]) -> List[Tuple[int, str]]:
-        """
-        Update tracker with new detections and return vehicles that crossed the line.
+        Update tracker with new detections.
         
         Args:
             detections: Array of detections, each as [x1, y1, x2, y2]
-            counting_line: List of two points [(x1, y1), (x2, y2)]
+            counting_line: Deprecated, ignored. Counting is done by GateCounter.
             
         Returns:
-            List of tuples (vehicle_id, direction) for vehicles that just crossed
-            the counting line and should be counted
+            Empty list (counting is done by GateCounter, not tracker)
         """
-        if self.counting_line != counting_line:
-            self.set_counting_line(counting_line)
-        
         # Update existing tracked vehicles
         self._update_existing_tracks(detections)
         
@@ -94,10 +83,8 @@ class VehicleTracker:
         # Remove old tracks
         self._remove_old_tracks()
         
-        # Check for vehicles crossing the counting line
-        vehicles_to_count = self._check_line_crossings()
-        
-        return vehicles_to_count
+        # Tracker doesn't count - that's done by GateCounter
+        return []
     
     def _calculate_iou(
         self,
@@ -155,6 +142,7 @@ class VehicleTracker:
         matched_detections = set()
         
         for vehicle_id, vehicle in self.tracked_vehicles.items():
+            # Skip already-counted vehicles (they're waiting for cleanup)
             if vehicle.has_been_counted:
                 vehicle.frames_since_seen += 1
                 continue
@@ -236,79 +224,10 @@ class VehicleTracker:
         for vehicle_id in to_remove:
             del self.tracked_vehicles[vehicle_id]
     
-    def _check_line_crossings(self) -> List[Tuple[int, str]]:
-        """
-        Check for vehicles crossing the counting line based on side switching.
-        
-        Returns:
-            List of (vehicle_id, direction) tuples for vehicles that just crossed
-        """
-        if not self.counting_line:
-            return []
-            
-        vehicles_to_count = []
-        p1, p2 = self.counting_line
-        
-        for vehicle in self.tracked_vehicles.values():
-            if vehicle.has_been_counted or len(vehicle.trajectory) < 2:
-                continue
-            
-            # Get current and previous position
-            curr_pos = vehicle.center
-            prev_pos = vehicle.trajectory[-2]
-            
-            # Check which side of the line the points are on
-            prev_side = self._get_line_side(prev_pos, p1, p2)
-            curr_side = self._get_line_side(curr_pos, p1, p2)
-            
-            # If sides are different (and not 0 which means on the line), a crossing occurred
-            if prev_side != 0 and curr_side != 0 and prev_side != curr_side:
-                # Direction is determined by the transition
-                # +1 to -1: Direction A (e.g., Northbound)
-                # -1 to +1: Direction B (e.g., Southbound)
-                
-                if prev_side > 0 and curr_side < 0:
-                    vehicle.direction = "northbound" # Arbitrary mapping, can be swapped
-                else:
-                    vehicle.direction = "southbound"
-                
-                # Mark as counted and add to list
-                vehicle.has_been_counted = True
-                vehicles_to_count.append((vehicle.vehicle_id, vehicle.direction))
-                logging.debug(f"Vehicle {vehicle.vehicle_id} crossed line: {vehicle.direction}")
-        
-        return vehicles_to_count
-
-    def _get_line_side(self, p: Tuple[float, float], line_start: Tuple[int, int], line_end: Tuple[int, int]) -> int:
-        """
-        Determine which side of the line a point is on using the cross product.
-        
-        Returns:
-            1 if on one side, -1 if on the other, 0 if on the line
-        """
-        # Vector for the line
-        line_vec_x = line_end[0] - line_start[0]
-        line_vec_y = line_end[1] - line_start[1]
-        
-        # Vector from line start to point
-        point_vec_x = p[0] - line_start[0]
-        point_vec_y = p[1] - line_start[1]
-        
-        # Cross product (2D analog)
-        cross_product = (line_vec_x * point_vec_y) - (line_vec_y * point_vec_x)
-        
-        if cross_product > 0:
-            return 1
-        elif cross_product < 0:
-            return -1
-        else:
-            return 0
-
-    def _determine_direction(self, vehicle: TrackedVehicle) -> Optional[str]:
-        """Deprecated: Direction is now determined during line crossing."""
-        return vehicle.direction
-    
     def get_active_tracks(self) -> List[TrackedVehicle]:
-        """Get list of currently active tracked vehicles."""
+        """Get list of currently active tracked vehicles (not yet counted)."""
         return [v for v in self.tracked_vehicles.values() if not v.has_been_counted]
-
+    
+    def get_all_tracks(self) -> List[TrackedVehicle]:
+        """Get all tracked vehicles (including counted ones)."""
+        return list(self.tracked_vehicles.values())

@@ -31,6 +31,8 @@
       border-radius: 10px;
       font-size: 13px;
     }
+    .badge-a { background: rgba(0, 201, 255, 0.2); color: #00c9ff; }
+    .badge-b { background: rgba(255, 99, 71, 0.2); color: #ff6347; }
     .pill {
       display: inline-flex;
       align-items: center;
@@ -52,32 +54,69 @@
       margin: 8px 0;
       border-bottom: 1px solid #1f2a37;
     }
+    .gate-btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid #1f2a37;
+      background: #0b1220;
+      color: #9fb0c3;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .gate-btn.active-a {
+      background: rgba(0, 201, 255, 0.2);
+      border-color: #00c9ff;
+      color: #00c9ff;
+    }
+    .gate-btn.active-b {
+      background: rgba(255, 99, 71, 0.2);
+      border-color: #ff6347;
+      color: #ff6347;
+    }
+    .input-sm {
+      min-height: 0;
+      height: 38px;
+      width: 100%;
+      padding: 8px;
+      background: #0b1220;
+      border: 1px solid #1f2a37;
+      border-radius: 8px;
+      color: #e0e8f0;
+    }
   </style>
 
   <h1>Calibration</h1>
-  <p class="muted">Place a counting line, adjust colors/orientation, and tune tracker behaviour. The line is stored as ratios (0..1) and applied live.</p>
+  <p class="muted">Configure the counting gate (two lines A and B), adjust image orientation, and tune tracker parameters.</p>
 
   <div class="calib-grid">
     <section class="card">
       <div class="row" style="justify-content: space-between; align-items: center;">
-        <div class="label">Counting line</div>
-        <div class="badge" id="line-status">Click P1</div>
+        <div class="label">Counting Gate</div>
+        <div style="display:flex; gap:8px;">
+          <span class="badge badge-a" id="status-a">Gate A: not set</span>
+          <span class="badge badge-b" id="status-b">Gate B: not set</span>
+        </div>
       </div>
       <div class="divider"></div>
+      <div class="row" style="gap:8px; margin-bottom:8px;">
+        <button class="gate-btn active-a" id="btn-gate-a">Draw Gate A</button>
+        <button class="gate-btn" id="btn-gate-b">Draw Gate B</button>
+      </div>
       <div class="video-wrap">
         <img src="/api/camera/live.mjpg" id="video-feed" alt="Video Stream">
         <canvas id="overlay"></canvas>
       </div>
       <div class="muted" style="margin-top:8px;">
-        Click two points (P1 then P2). Use Reset to start over. Orientation hint: treat P1→P2 as the forward direction.
+        Click two points to define each gate line. Gate A (cyan) and Gate B (coral) form a counting zone.
+        Vehicles crossing A→B or B→A are counted with direction labels.
       </div>
     </section>
 
     <section class="card">
       <div class="row" style="justify-content: space-between; align-items: center;">
         <div>
-          <div class="label">Image calibration</div>
-          <div class="muted" style="font-size:12px;">Preview applies these transforms live.</div>
+          <div class="label">Settings</div>
+          <div class="muted" style="font-size:12px;">Image transforms, direction labels, and tracking.</div>
         </div>
         <div class="pill"><span class="dot"></span>Live</div>
       </div>
@@ -85,13 +124,30 @@
       <div class="divider"></div>
 
       <div class="row" style="flex-direction: column; align-items: flex-start; gap:10px;">
+        <!-- Direction Labels -->
+        <div class="label">Direction Labels</div>
+        <div class="row" style="gap:8px; width:100%;">
+          <div style="flex:1;">
+            <label class="muted" style="font-size:12px;">A → B</label>
+            <input type="text" id="label-a-to-b" class="input-sm" placeholder="northbound">
+          </div>
+          <div style="flex:1;">
+            <label class="muted" style="font-size:12px;">B → A</label>
+            <input type="text" id="label-b-to-a" class="input-sm" placeholder="southbound">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Image Calibration -->
+        <div class="label">Image Calibration</div>
         <label class="row">
           <input type="checkbox" id="swap-rb">
           <span class="muted">Swap R/B (fix weird colors)</span>
         </label>
 
         <label class="label" style="margin-top:4px;">Rotate</label>
-        <select id="rotate" class="textarea" style="min-height:0; height:38px; width:140px; padding:8px;">
+        <select id="rotate" class="input-sm" style="width:140px;">
           <option value="0">0°</option>
           <option value="90">90°</option>
           <option value="180">180°</option>
@@ -109,33 +165,48 @@
 
         <div class="divider"></div>
 
+        <!-- Tracking -->
         <div class="label">Tracking</div>
-        <div class="muted" style="font-size:12px;">Adjust how long tracks persist, how many points define direction, and IoU match threshold.</div>
+        <div class="muted" style="font-size:12px;">Adjust how tracks persist and match.</div>
         <label class="muted">Max frames unseen
-          <input type="number" id="trk-mfs" class="textarea" style="min-height:0; height:38px; width:140px; padding:8px;" min="1">
+          <input type="number" id="trk-mfs" class="input-sm" style="width:140px;" min="1">
         </label>
         <label class="muted">Min trajectory length
-          <input type="number" id="trk-mtl" class="textarea" style="min-height:0; height:38px; width:140px; padding:8px;" min="1">
+          <input type="number" id="trk-mtl" class="input-sm" style="width:140px;" min="1">
         </label>
         <label class="muted">IoU threshold
-          <input type="number" step="0.01" id="trk-iou" class="textarea" style="min-height:0; height:38px; width:140px; padding:8px;" min="0.01" max="1">
+          <input type="number" step="0.01" id="trk-iou" class="input-sm" style="width:140px;" min="0.01" max="1">
+        </label>
+
+        <div class="divider"></div>
+
+        <!-- Gate Parameters -->
+        <div class="label">Gate Parameters</div>
+        <label class="muted">Max gap frames
+          <input type="number" id="gate-max-gap" class="input-sm" style="width:140px;" min="1">
+        </label>
+        <label class="muted">Min age frames
+          <input type="number" id="gate-min-age" class="input-sm" style="width:140px;" min="1">
+        </label>
+        <label class="muted">Min displacement (px)
+          <input type="number" step="1" id="gate-min-disp" class="input-sm" style="width:140px;" min="0">
         </label>
 
         <div class="divider"></div>
 
         <div class="row" style="gap:8px;">
-          <button class="btn" id="reset-line" style="background:#1b2634;">Reset line</button>
-          <button class="btn" id="save">Save</button>
+          <button class="btn" id="reset-gates" style="background:#1b2634;">Reset Gates</button>
+          <button class="btn" id="save">Save All</button>
         </div>
         <div class="muted" style="font-size:12px;">
-          Saving persists to <code>config/config.yaml</code>. Changes apply live; some camera drivers may need restart.
+          Saving persists to <code>config/config.yaml</code>. Changes apply live.
         </div>
       </div>
 
       <div class="divider"></div>
 
-      <div class="label">Payload preview</div>
-      <pre id="debug" class="muted" style="margin-top:6px;">{}</pre>
+      <div class="label">Payload Preview</div>
+      <pre id="debug" class="muted" style="margin-top:6px; font-size:11px; max-height:150px; overflow:auto;">{}</pre>
     </section>
   </div>
 
@@ -143,12 +214,31 @@
     const img = document.getElementById('video-feed');
     const canvas = document.getElementById('overlay');
     const ctx = canvas.getContext('2d');
-    const statusEl = document.getElementById('line-status');
     const debugEl = document.getElementById('debug');
 
-    let p1 = null; // {xRatio, yRatio}
-    let p2 = null;
-    let existingLine = null;
+    // Gate state
+    let currentGate = 'A';  // 'A' or 'B'
+    let gateA = { p1: null, p2: null };
+    let gateB = { p1: null, p2: null };
+
+    const btnA = document.getElementById('btn-gate-a');
+    const btnB = document.getElementById('btn-gate-b');
+    const statusA = document.getElementById('status-a');
+    const statusB = document.getElementById('status-b');
+
+    btnA.addEventListener('click', () => {
+      currentGate = 'A';
+      btnA.classList.add('active-a');
+      btnA.classList.remove('active-b');
+      btnB.classList.remove('active-a', 'active-b');
+    });
+
+    btnB.addEventListener('click', () => {
+      currentGate = 'B';
+      btnB.classList.add('active-b');
+      btnB.classList.remove('active-a');
+      btnA.classList.remove('active-a', 'active-b');
+    });
 
     function canvasSizeToImage() {
       const rect = img.getBoundingClientRect();
@@ -156,22 +246,12 @@
       canvas.height = Math.max(1, Math.floor(rect.height));
     }
 
-    function positiveIntOrNull(val) {
-      const n = parseInt(val ?? '', 10);
-      return Number.isFinite(n) && n > 0 ? n : null;
-    }
-
-    function iouOrNull(val) {
-      const n = parseFloat(val ?? '');
-      return Number.isFinite(n) && n > 0 && n <= 1 ? n : null;
-    }
-
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const drawPoint = (p, color) => {
-        const x = p.xRatio * canvas.width;
-        const y = p.yRatio * canvas.height;
+        const x = p.x * canvas.width;
+        const y = p.y * canvas.height;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(x, y, 6, 0, Math.PI * 2);
@@ -182,26 +262,29 @@
         ctx.strokeStyle = color;
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.moveTo(a.xRatio * canvas.width, a.yRatio * canvas.height);
-        ctx.lineTo(b.xRatio * canvas.width, b.yRatio * canvas.height);
+        ctx.moveTo(a.x * canvas.width, a.y * canvas.height);
+        ctx.lineTo(b.x * canvas.width, b.y * canvas.height);
         ctx.stroke();
       };
 
-      if (existingLine && (!p1 && !p2)) {
-        drawLine(existingLine[0], existingLine[1], 'rgba(255,255,0,0.85)');
+      // Draw Gate A (cyan)
+      if (gateA.p1) drawPoint(gateA.p1, 'rgba(0, 201, 255, 0.9)');
+      if (gateA.p1 && gateA.p2) {
+        drawPoint(gateA.p2, 'rgba(0, 201, 255, 0.9)');
+        drawLine(gateA.p1, gateA.p2, 'rgba(0, 201, 255, 0.9)');
       }
 
-      if (p1) drawPoint(p1, 'rgba(0,255,0,0.9)');
-      if (p2) {
-        drawPoint(p2, 'rgba(0,255,0,0.9)');
-        drawLine(p1, p2, 'rgba(0,255,0,0.9)');
+      // Draw Gate B (coral)
+      if (gateB.p1) drawPoint(gateB.p1, 'rgba(255, 99, 71, 0.9)');
+      if (gateB.p1 && gateB.p2) {
+        drawPoint(gateB.p2, 'rgba(255, 99, 71, 0.9)');
+        drawLine(gateB.p1, gateB.p2, 'rgba(255, 99, 71, 0.9)');
       }
     }
 
-    function setStatus() {
-      if (!p1) statusEl.innerText = "Click P1";
-      else if (!p2) statusEl.innerText = "Click P2";
-      else statusEl.innerText = "Line ready";
+    function updateStatus() {
+      statusA.textContent = gateA.p1 && gateA.p2 ? 'Gate A: set' : gateA.p1 ? 'Gate A: P1 set' : 'Gate A: not set';
+      statusB.textContent = gateB.p1 && gateB.p2 ? 'Gate B: set' : gateB.p1 ? 'Gate B: P1 set' : 'Gate B: not set';
     }
 
     function ratiosFromEvent(ev) {
@@ -209,128 +292,171 @@
       const x = (ev.clientX - rect.left) / rect.width;
       const y = (ev.clientY - rect.top) / rect.height;
       return {
-        xRatio: Math.max(0, Math.min(1, x)),
-        yRatio: Math.max(0, Math.min(1, y)),
+        x: Math.max(0, Math.min(1, x)),
+        y: Math.max(0, Math.min(1, y)),
       };
     }
 
     canvas.addEventListener('click', (ev) => {
       const p = ratiosFromEvent(ev);
-      if (!p1) p1 = p;
-      else p2 = p;
-      setStatus();
+      const gate = currentGate === 'A' ? gateA : gateB;
+
+      if (!gate.p1) {
+        gate.p1 = p;
+      } else if (!gate.p2) {
+        gate.p2 = p;
+      } else {
+        // Reset and start over
+        gate.p1 = p;
+        gate.p2 = null;
+      }
+
+      updateStatus();
       draw();
       updateDebug();
     });
 
-    function updateDebug() {
-      const cam = {
-        swap_rb: document.getElementById('swap-rb').checked,
-        rotate: parseInt(document.getElementById('rotate').value || '0'),
-        flip_horizontal: document.getElementById('flip-h').checked,
-        flip_vertical: document.getElementById('flip-v').checked,
-      };
-      const det = {
-        counting_line: (p1 && p2) ? [[p1.xRatio, p1.yRatio], [p2.xRatio, p2.yRatio]] : null,
-      };
-      const trk = {
-        max_frames_since_seen: positiveIntOrNull(document.getElementById('trk-mfs').value),
-        min_trajectory_length: positiveIntOrNull(document.getElementById('trk-mtl').value),
-        iou_threshold: iouOrNull(document.getElementById('trk-iou').value),
-      };
-      debugEl.innerText = JSON.stringify({camera: cam, detection: det, tracking: trk}, null, 2);
+    function positiveIntOrNull(val) {
+      const n = parseInt(val ?? '', 10);
+      return Number.isFinite(n) && n > 0 ? n : null;
     }
 
-    async function loadCalibration() {
-      const res = await fetch('/api/calibration');
-      const data = await res.json();
-
-      document.getElementById('swap-rb').checked = !!(data.camera && data.camera.swap_rb);
-      document.getElementById('rotate').value = String((data.camera && data.camera.rotate) || 0);
-      document.getElementById('flip-h').checked = !!(data.camera && data.camera.flip_horizontal);
-      document.getElementById('flip-v').checked = !!(data.camera && data.camera.flip_vertical);
-
-      if (data.detection && Array.isArray(data.detection.counting_line) && data.detection.counting_line.length === 2) {
-        existingLine = [
-          {xRatio: data.detection.counting_line[0][0], yRatio: data.detection.counting_line[0][1]},
-          {xRatio: data.detection.counting_line[1][0], yRatio: data.detection.counting_line[1][1]},
-        ];
-      } else {
-        existingLine = null;
-      }
-
-      if (data.tracking) {
-        document.getElementById('trk-mfs').value = data.tracking.max_frames_since_seen ?? 10;
-        document.getElementById('trk-mtl').value = data.tracking.min_trajectory_length ?? 3;
-        document.getElementById('trk-iou').value = data.tracking.iou_threshold ?? 0.3;
-      } else {
-        document.getElementById('trk-mfs').value = 10;
-        document.getElementById('trk-mtl').value = 3;
-        document.getElementById('trk-iou').value = 0.3;
-      }
-
-      updateDebug();
-      setStatus();
-      draw();
+    function floatOrNull(val) {
+      const n = parseFloat(val ?? '');
+      return Number.isFinite(n) ? n : null;
     }
 
-    async function saveCalibration() {
-      const payload = {
+    function buildPayload() {
+      const lineA = gateA.p1 && gateA.p2 ? [[gateA.p1.x, gateA.p1.y], [gateA.p2.x, gateA.p2.y]] : null;
+      const lineB = gateB.p1 && gateB.p2 ? [[gateB.p1.x, gateB.p1.y], [gateB.p2.x, gateB.p2.y]] : null;
+
+      return {
         camera: {
           swap_rb: document.getElementById('swap-rb').checked,
           rotate: parseInt(document.getElementById('rotate').value || '0'),
           flip_horizontal: document.getElementById('flip-h').checked,
           flip_vertical: document.getElementById('flip-v').checked,
         },
-        detection: {
-          counting_line: (p1 && p2) ? [[p1.xRatio, p1.yRatio], [p2.xRatio, p2.yRatio]] : null,
+        counting: {
+          line_a: lineA,
+          line_b: lineB,
+          direction_labels: {
+            a_to_b: document.getElementById('label-a-to-b').value || 'northbound',
+            b_to_a: document.getElementById('label-b-to-a').value || 'southbound',
+          },
+          gate: {
+            max_gap_frames: positiveIntOrNull(document.getElementById('gate-max-gap').value),
+            min_age_frames: positiveIntOrNull(document.getElementById('gate-min-age').value),
+            min_displacement_px: floatOrNull(document.getElementById('gate-min-disp').value),
+          },
         },
         tracking: {
           max_frames_since_seen: positiveIntOrNull(document.getElementById('trk-mfs').value),
           min_trajectory_length: positiveIntOrNull(document.getElementById('trk-mtl').value),
-          iou_threshold: iouOrNull(document.getElementById('trk-iou').value),
-        }
+          iou_threshold: floatOrNull(document.getElementById('trk-iou').value),
+        },
       };
-
-      const res = await fetch('/api/calibration', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        alert('Failed to save: ' + (data.detail || data.error || 'unknown error'));
-        return;
-      }
-      if (payload.detection.counting_line) {
-        existingLine = [
-          {xRatio: payload.detection.counting_line[0][0], yRatio: payload.detection.counting_line[0][1]},
-          {xRatio: payload.detection.counting_line[1][0], yRatio: payload.detection.counting_line[1][1]},
-        ];
-      }
-      p1 = null;
-      p2 = null;
-      setStatus();
-      draw();
-      updateDebug();
     }
 
-    document.getElementById('reset-line').addEventListener('click', () => {
-      p1 = null;
-      p2 = null;
-      setStatus();
+    function updateDebug() {
+      debugEl.textContent = JSON.stringify(buildPayload(), null, 2);
+    }
+
+    async function loadCalibration() {
+      try {
+        const res = await fetch('/api/calibration');
+        const data = await res.json();
+
+        // Camera
+        document.getElementById('swap-rb').checked = !!(data.camera && data.camera.swap_rb);
+        document.getElementById('rotate').value = String((data.camera && data.camera.rotate) || 0);
+        document.getElementById('flip-h').checked = !!(data.camera && data.camera.flip_horizontal);
+        document.getElementById('flip-v').checked = !!(data.camera && data.camera.flip_vertical);
+
+        // Tracking
+        if (data.tracking) {
+          document.getElementById('trk-mfs').value = data.tracking.max_frames_since_seen ?? 10;
+          document.getElementById('trk-mtl').value = data.tracking.min_trajectory_length ?? 3;
+          document.getElementById('trk-iou').value = data.tracking.iou_threshold ?? 0.3;
+        }
+
+        // Counting
+        if (data.counting) {
+          const la = data.counting.line_a;
+          const lb = data.counting.line_b;
+          if (Array.isArray(la) && la.length === 2) {
+            gateA.p1 = { x: la[0][0], y: la[0][1] };
+            gateA.p2 = { x: la[1][0], y: la[1][1] };
+          }
+          if (Array.isArray(lb) && lb.length === 2) {
+            gateB.p1 = { x: lb[0][0], y: lb[0][1] };
+            gateB.p2 = { x: lb[1][0], y: lb[1][1] };
+          }
+
+          const labels = data.counting.direction_labels || {};
+          document.getElementById('label-a-to-b').value = labels.a_to_b || 'northbound';
+          document.getElementById('label-b-to-a').value = labels.b_to_a || 'southbound';
+
+          const gateParams = data.counting.gate || {};
+          document.getElementById('gate-max-gap').value = gateParams.max_gap_frames ?? 30;
+          document.getElementById('gate-min-age').value = gateParams.min_age_frames ?? 3;
+          document.getElementById('gate-min-disp').value = gateParams.min_displacement_px ?? 15;
+        }
+      } catch (e) {
+        console.error('Failed to load calibration:', e);
+      }
+
+      updateStatus();
+      updateDebug();
+      draw();
+    }
+
+    async function saveCalibration() {
+      const payload = buildPayload();
+
+      // Remove null values from nested objects
+      const cleanObj = (obj) => {
+        Object.keys(obj).forEach(k => {
+          if (obj[k] === null || obj[k] === undefined) delete obj[k];
+          else if (typeof obj[k] === 'object' && !Array.isArray(obj[k])) cleanObj(obj[k]);
+        });
+      };
+      cleanObj(payload);
+
+      try {
+        const res = await fetch('/api/calibration', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          alert('Failed to save: ' + (data.detail || data.error || 'unknown error'));
+          return;
+        }
+        updateDebug();
+      } catch (e) {
+        alert('Save failed: ' + e.message);
+      }
+    }
+
+    document.getElementById('reset-gates').addEventListener('click', () => {
+      gateA = { p1: null, p2: null };
+      gateB = { p1: null, p2: null };
+      updateStatus();
       draw();
       updateDebug();
     });
 
     document.getElementById('save').addEventListener('click', saveCalibration);
-    document.getElementById('swap-rb').addEventListener('change', updateDebug);
-    document.getElementById('rotate').addEventListener('change', updateDebug);
-    document.getElementById('flip-h').addEventListener('change', updateDebug);
-    document.getElementById('flip-v').addEventListener('change', updateDebug);
-    document.getElementById('trk-mfs').addEventListener('input', updateDebug);
-    document.getElementById('trk-mtl').addEventListener('input', updateDebug);
-    document.getElementById('trk-iou').addEventListener('input', updateDebug);
+
+    // Bind change listeners for debug update
+    ['swap-rb', 'rotate', 'flip-h', 'flip-v', 'trk-mfs', 'trk-mtl', 'trk-iou',
+     'label-a-to-b', 'label-b-to-a', 'gate-max-gap', 'gate-min-age', 'gate-min-disp'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', updateDebug);
+      if (el) el.addEventListener('change', updateDebug);
+    });
 
     window.addEventListener('resize', () => {
       canvasSizeToImage();

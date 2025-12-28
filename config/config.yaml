@@ -3,9 +3,4 @@ camera:
   rotate: 0
   flip_horizontal: false
   flip_vertical: false
-detection:
-  counting_line:
-  - - 0.5943195850827365
-    - 0.02514954372789591
-  - - 0.35880464312175847
-    - 0.9948041741256604
+detection: {}

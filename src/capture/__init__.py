@@ -1,3 +1,0 @@
-"""Capture backends (camera sources)."""
-
-

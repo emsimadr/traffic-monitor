@@ -1,3 +1,0 @@
-"""Capture backend implementations."""
-
-

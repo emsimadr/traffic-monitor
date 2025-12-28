@@ -1,4 +1,5 @@
 import threading
+import time
 import cv2
 import numpy as np
 
@@ -25,7 +26,8 @@ class SharedState:
                         "fps": 0,
                         "cpu_usage": 0,
                         "memory_usage": 0,
-                        "start_time": 0
+                        "start_time": 0,
+                        "last_frame_ts": None,
                     }
         return cls._instance
     
@@ -36,6 +38,8 @@ class SharedState:
                 # Encode frame to JPEG for streaming to save bandwidth/processing later
                 # For now, just store the raw frame or a copy
                 self.frame = frame.copy()
+                # Track when the last frame arrived for health/status endpoints.
+                self.system_stats["last_frame_ts"] = time.time()
     
     def get_frame(self):
         """Get the current video frame."""
@@ -65,6 +69,10 @@ class SharedState:
 
     def update_system_stats(self, stats):
         self.system_stats.update(stats)
+
+    def get_system_stats_copy(self):
+        """Return a shallow copy of current system stats."""
+        return dict(self.system_stats)
 
 # Global instance
 state = SharedState()

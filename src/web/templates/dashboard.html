@@ -1,7 +1,7 @@
 {% extends "_layout.html" %}
 {% block content %}
   <h1>Dashboard</h1>
-  <p class="muted">24h counts and a live feed with the current counting line.</p>
+  <p class="muted">24h counts and a live feed with the current counting gate.</p>
 
   <section class="card stats-bar">
     <div class="stat">
@@ -20,14 +20,14 @@
 
   <section class="card live-shell">
     <div class="row" style="justify-content: space-between; align-items: center;">
-      <div class="label">Live feed</div>
+      <div class="label">Live feed (Gate lines)</div>
       <div class="muted" id="live-updated">—</div>
     </div>
     <div class="live-wrap">
       <img src="/api/camera/live.mjpg" id="live-img" alt="Live stream">
       <canvas id="live-overlay"></canvas>
     </div>
-    <div class="muted" style="margin-top:8px;">Counting line pulled from calibration.</div>
+    <div class="muted" style="margin-top:8px;">Gate A and Gate B lines pulled from counting config.</div>
     <div class="muted" id="dash-error"></div>
   </section>
 
@@ -40,7 +40,8 @@
     const liveImg = document.getElementById('live-img');
     const overlay = document.getElementById('live-overlay');
     const ctx = overlay.getContext('2d');
-    let countingLine = null;
+    let lineA = null;
+    let lineB = null;
 
     function pickDir(map, keys) {
       for (const k of keys) {
@@ -56,48 +57,50 @@
       drawLine();
     }
 
-    function drawLine() {
+    function drawLines() {
       ctx.clearRect(0, 0, overlay.width, overlay.height);
-      if (!countingLine || countingLine.length !== 2) return;
-      const [p1, p2] = countingLine;
-      const toPx = (p) => ({
-        x: p[0] * overlay.width,
-        y: p[1] * overlay.height,
-      });
-      const a = toPx(p1);
-      const b = toPx(p2);
-      ctx.strokeStyle = 'rgba(0, 201, 255, 0.9)';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
+      const toPx = (p) => ({ x: p[0] * overlay.width, y: p[1] * overlay.height });
+      const draw = (pts, color) => {
+        if (!pts || pts.length !== 2) return;
+        const a = toPx(pts[0]);
+        const b = toPx(pts[1]);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      };
+      draw(lineA, 'rgba(0, 201, 255, 0.9)');
+      draw(lineB, 'rgba(255, 99, 71, 0.9)');
     }
 
-    function setDefaultLine() {
-      // horizontal midpoint fallback
-      countingLine = [
+    function setDefaultLines() {
+      lineA = [
         [0.0, 0.5],
         [1.0, 0.5],
       ];
-      drawLine();
+      lineB = [
+        [0.0, 0.6],
+        [1.0, 0.6],
+      ];
+      drawLines();
     }
 
-    async function loadCalibrationLine() {
+    async function loadGateLines() {
       try {
         const res = await fetch('/api/calibration');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const cl = data?.detection?.counting_line;
-        countingLine = Array.isArray(cl) && cl.length === 2 ? cl : null;
-        if (!countingLine) {
-          setDefaultLine();
-        } else {
-          drawLine();
-        }
+        const c = data?.counting || {};
+        const la = c.line_a;
+        const lb = c.line_b;
+        lineA = Array.isArray(la) && la.length === 2 ? la : null;
+        lineB = Array.isArray(lb) && lb.length === 2 ? lb : null;
+        if (!lineA || !lineB) setDefaultLines(); else drawLines();
       } catch (e) {
-        document.getElementById('dash-error').textContent = 'Counting line unavailable';
-        setDefaultLine();
+        document.getElementById('dash-error').textContent = 'Gate lines unavailable';
+        setDefaultLines();
       }
     }
 
@@ -128,7 +131,7 @@
       resizeCanvas();
     }
 
-    loadCalibrationLine();
+    loadGateLines();
     refreshStats();
     setInterval(refreshStats, 5000);
   </script>

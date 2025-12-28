@@ -127,6 +127,7 @@ class CloudSync:
                 bigquery.SchemaField("timestamp", "FLOAT", mode="REQUIRED"),
                 bigquery.SchemaField("date_time", "STRING", mode="REQUIRED"),
                 bigquery.SchemaField("direction", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("direction_label", "STRING", mode="NULLABLE"),
                 bigquery.SchemaField("recorded_at", "TIMESTAMP", mode="NULLABLE"),
             ]
             

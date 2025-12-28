@@ -160,4 +160,19 @@ pre {
   background: #1d4ed8;
 }
 
+.input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #1f2a37;
+  background: #0b1220;
+  color: #e8eef6;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 

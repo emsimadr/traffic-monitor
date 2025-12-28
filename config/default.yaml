@@ -11,7 +11,6 @@ camera:
   backend: "opencv"
   device_id: "rtsp://192.168.4.45/live0"  # Base IP camera URL
   secrets_file: "secrets/camera_secrets.yaml" # Path to credentials file
-  rtsp_transport: "udp"          # Force transport protocol: "tcp" or "udp"
   resolution: [1280, 720]        # Camera resolution [width, height]
   fps: 30                        # Frames per second
   # Optional image calibration (applied after capture, before detection)
@@ -28,9 +27,6 @@ detection:
   # backend: "bgsub" (default, classical CV) or "yolo" (AI-based; requires optional deps)
   backend: "bgsub"
   min_contour_area: 1000         # Minimum contour area for vehicle detection
-  # Counting line defined as [[x1, y1], [x2, y2]] using ratios (0.0-1.0)
-  # Example: Top-left to bottom-right diagonal
-  counting_line: [[0.2, 1.0], [0., 0.0]]
   detect_shadows: true           # Whether to detect shadows in background subtraction
 
   # YOLO settings (used only when detection.backend == "yolo")
@@ -40,6 +36,19 @@ detection:
     iou_threshold: 0.45
     # classes: [2, 3, 5, 7]      # optional filter by class IDs (model-dependent)
     # class_name_overrides: {}   # optional mapping of class_id -> display name
+
+# Counting strategy (line or gate)
+counting:
+  # Gate-based counting (two lines). Define line_a and line_b as ratios.
+  line_a: [[0.2, 1.0], [0., 0.0]]   # Gate A line (ratios)
+  line_b: [[0.8, 1.0], [1.0, 0.0]]  # Gate B line (ratios)
+  direction_labels:
+    a_to_b: "northbound"
+    b_to_a: "southbound"
+  gate:
+    max_gap_frames: 30
+    min_age_frames: 3
+    min_displacement_px: 15.0
 
 # Storage settings
 storage:

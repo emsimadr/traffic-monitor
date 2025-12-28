@@ -26,7 +26,7 @@ from typing import Dict, Any, Tuple, Optional
 
 # Import local modules
 from camera.camera import create_camera, inject_rtsp_credentials
-from analytics.counting import compute_counting_line
+from analytics.counter import GateCounter, GateCounterConfig
 from tracking.tracker import VehicleTracker
 from detection.vehicle import VehicleDetector
 from detection.bgsub_detector import BgSubDetector
@@ -39,6 +39,9 @@ from web.app import create_app
 from web.state import state as web_state
 import threading
 import uvicorn
+
+from runtime.context import RuntimeContext
+from runtime.services import CountingService, FrameIngestService
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively merge override into base and return base."""
@@ -149,21 +152,6 @@ def validate_config(config: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         if 'iou_threshold' in yolo_cfg and not isinstance(yolo_cfg['iou_threshold'], (int, float)):
             return False, "detection.yolo.iou_threshold must be a number"
     
-    # Counting line can be a float (0-1, Y-position) or a list of two points [[x1,y1], [x2,y2]]
-    if 'counting_line' in detection:
-        line = detection['counting_line']
-        if isinstance(line, (int, float)):
-            if not 0 <= line <= 1:
-                return False, "detection.counting_line must be between 0 and 1"
-        elif isinstance(line, list):
-            if len(line) != 2 or not all(isinstance(p, list) and len(p) == 2 for p in line):
-                return False, "detection.counting_line must be [[x1,y1], [x2,y2]]"
-        else:
-            return False, "detection.counting_line must be a number or list of points"
-    elif 'counting_line_position' not in detection:
-        # Fallback for old config
-        return False, "Missing detection.counting_line or detection.counting_line_position"
-
     # Optional tracking settings (used by VehicleTracker)
     tracking = config.get('tracking', {}) or {}
     if tracking:
@@ -332,6 +320,9 @@ def main():
             min_trajectory_length=int(tracking_cfg.get('min_trajectory_length', 3)),
             iou_threshold=float(tracking_cfg.get('iou_threshold', 0.3)),
         )
+
+        # Counting strategy configuration (gate-only)
+        counting_cfg = config.get('counting', {}) or {}
         
         # Initialize counters
         vehicle_count = 0
@@ -356,12 +347,19 @@ def main():
                 True
             )
         
-        # Define counting line
-        # Can be a single float (Y-position ratio) or a list of points [[x1, y1], [x2, y2]] (ratios)
-        if 'counting_line' in config['detection']:
-            counting_config = config['detection']['counting_line']
-        else:
-            counting_config = config['detection']['counting_line_position']
+        # Build runtime context and services
+        ctx = RuntimeContext(
+            config=config,
+            db=db,
+            cloud_sync=cloud_sync,
+            camera=camera,
+            detector=detector,
+            tracker=tracker,
+            counter=None,
+            web_state=web_state,
+        )
+        counting_service = CountingService(ctx, counting_cfg)
+        ingest = FrameIngestService(ctx, counting_service, counting_config_fallback=None)
         
         # Main processing loop
         consecutive_frame_failures = 0
@@ -382,53 +380,20 @@ def main():
             # Reset failure counter on success
             consecutive_frame_failures = 0
             
-            # Process frame for vehicle detection
-            detections = detector.detect(frame)
+            # Process frame through ingest service (detect -> track -> count)
+            events = ingest.handle_frame(frame)
             
-            # Update web interface with latest frame
-            web_state.set_frame(frame)
-            web_state.update_system_stats({
-                "fps": camera.get_fps() if hasattr(camera, 'get_fps') else config['camera']['fps']
-            })
-
-            # Tracker expects Nx4 array of bboxes
-            vehicles = np.array([[d.x1, d.y1, d.x2, d.y2] for d in detections], dtype=float) if detections else np.array([])
-            
-            # Calculate counting line in pixels
-            frame_height, frame_width = frame.shape[:2]
-            # Allow live updates from the web calibration UI without restarting.
-            try:
-                live_cfg = web_state.get_config_copy() or {}
-                live_det = (live_cfg.get("detection", {}) or {})
-                live_counting_cfg = live_det.get("counting_line")
-            except Exception:
-                live_counting_cfg = None
-
-            counting_line = compute_counting_line(
-                live_counting_cfg if live_counting_cfg is not None else counting_config,
-                frame_width,
-                frame_height,
-            )
-            
-            # Update tracker and get vehicles that crossed the line
-            vehicles_to_count = tracker.update(vehicles, counting_line)
-            
-            # Count vehicles that crossed the line
-            for vehicle_id, direction in vehicles_to_count:
+            # Accumulate counts for UI (line-mode compatibility)
+            for event in events:
+                vehicle_id = event.track_id
+                direction = event.direction
                 vehicle_count += 1
-                if direction == "northbound":
+                if direction in ("northbound", "A_TO_B"):
                     count_northbound += 1
-                elif direction == "southbound":
+                elif direction in ("southbound", "B_TO_A"):
                     count_southbound += 1
                     
                 logging.info(f"Vehicle {vehicle_id} detected! Direction: {direction}, Count: {vehicle_count}")
-                
-                # Record detection in database
-                db.add_vehicle_detection(timestamp=time.time(), direction=direction)
-            
-            # Draw counting line
-            if args.display or args.record:
-                cv2.line(frame, counting_line[0], counting_line[1], (0, 0, 255), 2)
             
             # Draw bounding boxes for all detected vehicles
             if args.display or args.record:

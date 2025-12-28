@@ -42,6 +42,7 @@ class Database:
                 timestamp REAL NOT NULL,
                 date_time TEXT NOT NULL,
                 direction TEXT,
+                direction_label TEXT,
                 recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 cloud_synced INTEGER DEFAULT 0
             )
@@ -72,19 +73,27 @@ class Database:
             )
             ''')
             
+            # Backward-compatible migration: add direction_label if missing
+            try:
+                cursor.execute("ALTER TABLE vehicle_detections ADD COLUMN direction_label TEXT")
+            except sqlite3.OperationalError:
+                # Column already exists
+                pass
+
             self.conn.commit()
             logging.info("Database schema initialized")
         except sqlite3.Error as e:
             logging.error(f"Database initialization error: {e}")
             raise
     
-    def add_vehicle_detection(self, timestamp, direction="unknown"):
+    def add_vehicle_detection(self, timestamp, direction="unknown", direction_label=None):
         """
         Add a vehicle detection record.
         
         Args:
             timestamp: Unix timestamp of the detection
             direction: Direction of travel (e.g., "northbound", "southbound")
+            direction_label: Human-friendly label (e.g., from config mapping)
         
         Returns:
             ID of the inserted record
@@ -100,8 +109,8 @@ class Database:
             date_time = dt.strftime('%Y-%m-%d %H:%M:%S')
             
             cursor.execute(
-                'INSERT INTO vehicle_detections (timestamp, date_time, direction, cloud_synced) VALUES (?, ?, ?, ?)',
-                (timestamp, date_time, direction, 0)
+                'INSERT INTO vehicle_detections (timestamp, date_time, direction, direction_label, cloud_synced) VALUES (?, ?, ?, ?, ?)',
+                (timestamp, date_time, direction, direction_label, 0)
             )
             
             self.conn.commit()
@@ -173,7 +182,8 @@ class Database:
                 end_time = time.time()
 
             cursor.execute(
-                "SELECT direction, COUNT(*) FROM vehicle_detections WHERE timestamp BETWEEN ? AND ? GROUP BY direction",
+                "SELECT COALESCE(direction_label, direction, 'unknown') as dir_lbl, COUNT(*) "
+                "FROM vehicle_detections WHERE timestamp BETWEEN ? AND ? GROUP BY dir_lbl",
                 (start_time, end_time),
             )
             return {row[0] or "unknown": int(row[1]) for row in cursor.fetchall()}

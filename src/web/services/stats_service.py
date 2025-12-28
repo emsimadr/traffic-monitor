@@ -9,6 +9,7 @@ from typing import Any, Dict
 @dataclass
 class StatsService:
     db_path: str
+    direction_labels: dict | None = None
 
     def get_summary(self) -> Dict[str, Any]:
         now = time.time()
@@ -36,7 +37,22 @@ class StatsService:
                 "SELECT direction, COUNT(*) FROM vehicle_detections WHERE timestamp >= ? GROUP BY direction",
                 (last_24h_start,),
             )
-            by_direction = {row[0] or "unknown": int(row[1]) for row in cur.fetchall()}
+            raw_dir = {row[0] or "unknown": int(row[1]) for row in cur.fetchall()}
+
+        # Map direction codes to labels if provided
+        if self.direction_labels:
+            mapped: Dict[str, int] = {}
+            for code, count in raw_dir.items():
+                if code == "A_TO_B":
+                    label = self.direction_labels.get("a_to_b", code)
+                elif code == "B_TO_A":
+                    label = self.direction_labels.get("b_to_a", code)
+                else:
+                    label = code
+                mapped[label] = mapped.get(label, 0) + count
+            by_direction = mapped
+        else:
+            by_direction = raw_dir
 
         return {
             "total_detections": total,
