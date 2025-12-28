@@ -395,13 +395,8 @@ def main():
                     
                 logging.info(f"Vehicle {vehicle_id} detected! Direction: {direction}, Count: {vehicle_count}")
             
-            # Draw bounding boxes for all detected vehicles
+            # Draw tracked vehicles with IDs
             if args.display or args.record:
-                for vehicle in vehicles:
-                    x1, y1, x2, y2 = map(int, vehicle[:4])
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                
-                # Draw tracked vehicles with IDs
                 for tracked_vehicle in tracker.get_active_tracks():
                     x1, y1, x2, y2 = map(int, tracked_vehicle.bbox)
                     color = (255, 0, 0) if tracked_vehicle.has_been_counted else (0, 255, 0)

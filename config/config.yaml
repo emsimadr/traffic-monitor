@@ -4,3 +4,17 @@ camera:
   flip_horizontal: false
   flip_vertical: false
 detection: {}
+counting:
+  line_a:
+  - - 0.5710332103321033
+    - 0.26404264042640424
+  - - 0.3422509225092251
+    - 0.8265682656826568
+  line_b:
+  - - 0.6162361623616236
+    - 0.3132431324313243
+  - - 0.44003690036900367
+    - 0.8724887248872488
+  direction_labels:
+    a_to_b: northbound
+    b_to_a: southbound
