@@ -47,16 +47,6 @@ export default function Dashboard() {
     return mapped;
   }, [statsQuery.data, directionLabels]);
 
-  // Gate lines for overlay (if needed)
-  const gateLines = useMemo(() => {
-    const counting = calQuery.data?.counting || {};
-    const la = counting.line_a;
-    const lb = counting.line_b;
-    return {
-      lineA: Array.isArray(la) && la.length === 2 ? la.map((p: number[]) => ({ x: p[0], y: p[1] })) : null,
-      lineB: Array.isArray(lb) && lb.length === 2 ? lb.map((p: number[]) => ({ x: p[0], y: p[1] })) : null,
-    };
-  }, [calQuery.data]);
 
   const recentEvents = useMemo(() => {
     const evts: string[] = [];
@@ -79,7 +69,7 @@ export default function Dashboard() {
               <div className="text-xs text-slate-400">/api/camera/live.mjpg</div>
             </CardHeader>
             <CardContent>
-              <LiveFeed line={gateLines.lineA} />
+              <LiveFeed />
             </CardContent>
           </Card>
         </div>
