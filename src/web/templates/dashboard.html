@@ -5,16 +5,16 @@
 
   <section class="card stats-bar">
     <div class="stat">
-      <div class="label">Southbound (24h)</div>
-      <div class="value" id="stat-south">--</div>
+      <div class="label" id="label-dir-b">B → A (24h)</div>
+      <div class="value" id="stat-dir-b">--</div>
     </div>
     <div class="stat stat-main">
       <div class="label">Total (24h)</div>
       <div class="value big" id="stat-total">--</div>
     </div>
     <div class="stat">
-      <div class="label">Northbound (24h)</div>
-      <div class="value" id="stat-north">--</div>
+      <div class="label" id="label-dir-a">A → B (24h)</div>
+      <div class="value" id="stat-dir-a">--</div>
     </div>
   </section>
 
@@ -32,9 +32,10 @@
   </section>
 
   <script>
-    const dirKeys = {
-      north: ['northbound', 'north', 'N'],
-      south: ['southbound', 'south', 'S'],
+    // Direction labels (loaded from config)
+    let dirLabels = {
+      a_to_b: 'A → B',
+      b_to_a: 'B → A',
     };
 
     const liveImg = document.getElementById('live-img');
@@ -43,18 +44,11 @@
     let lineA = null;
     let lineB = null;
 
-    function pickDir(map, keys) {
-      for (const k of keys) {
-        if (map[k] !== undefined) return map[k];
-      }
-      return 0;
-    }
-
     function resizeCanvas() {
       const rect = liveImg.getBoundingClientRect();
       overlay.width = Math.max(1, Math.floor(rect.width));
       overlay.height = Math.max(1, Math.floor(rect.height));
-      drawLine();
+      drawLines();
     }
 
     function drawLines() {
@@ -87,19 +81,30 @@
       drawLines();
     }
 
-    async function loadGateLines() {
+    async function loadConfig() {
       try {
         const res = await fetch('/api/calibration');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const c = data?.counting || {};
+        
+        // Load gate lines
         const la = c.line_a;
         const lb = c.line_b;
         lineA = Array.isArray(la) && la.length === 2 ? la : null;
         lineB = Array.isArray(lb) && lb.length === 2 ? lb : null;
         if (!lineA || !lineB) setDefaultLines(); else drawLines();
+        
+        // Load direction labels
+        const labels = c.direction_labels || {};
+        if (labels.a_to_b) dirLabels.a_to_b = labels.a_to_b;
+        if (labels.b_to_a) dirLabels.b_to_a = labels.b_to_a;
+        
+        // Update UI labels
+        document.getElementById('label-dir-a').textContent = `${dirLabels.a_to_b} (24h)`;
+        document.getElementById('label-dir-b').textContent = `${dirLabels.b_to_a} (24h)`;
       } catch (e) {
-        document.getElementById('dash-error').textContent = 'Gate lines unavailable';
+        document.getElementById('dash-error').textContent = 'Config unavailable';
         setDefaultLines();
       }
     }
@@ -112,13 +117,15 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const dir = data.last_24h_by_direction || {};
-        const south = pickDir(dir, dirKeys.south);
-        const north = pickDir(dir, dirKeys.north);
-        const total = Number.isFinite(data.last_24h) ? data.last_24h : (south + north);
+        
+        // Find counts by direction label
+        const countA = dir[dirLabels.a_to_b] ?? dir['A_TO_B'] ?? 0;
+        const countB = dir[dirLabels.b_to_a] ?? dir['B_TO_A'] ?? 0;
+        const total = Number.isFinite(data.last_24h) ? data.last_24h : (countA + countB);
 
-        document.getElementById('stat-south').textContent = south ?? '--';
-        document.getElementById('stat-north').textContent = north ?? '--';
-        document.getElementById('stat-total').textContent = total ?? '--';
+        document.getElementById('stat-dir-a').textContent = countA;
+        document.getElementById('stat-dir-b').textContent = countB;
+        document.getElementById('stat-total').textContent = total;
         document.getElementById('live-updated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
       } catch (e) {
         errEl.textContent = 'Stats unavailable';
@@ -131,7 +138,7 @@
       resizeCanvas();
     }
 
-    loadGateLines();
+    loadConfig();
     refreshStats();
     setInterval(refreshStats, 5000);
   </script>

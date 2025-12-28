@@ -16,14 +16,46 @@ export default function Dashboard() {
   const today = statsQuery.data?.last_24h ?? null;
   const last15 = statusQuery.data?.stats?.last_hour ?? null; // proxy for short-term
   const rate = last15 != null ? last15 / 15 : null;
-  const directions = statsQuery.data?.last_24h_by_direction ?? {};
   const alerts = statusQuery.data?.alerts ?? [];
-  const line = useMemo(() => {
-    const l = calQuery.data?.detection?.counting_line;
-    if (Array.isArray(l) && l.length === 2) {
-      return l.map((p: number[]) => ({ x: p[0], y: p[1] }));
+
+  // Get direction labels from config
+  const directionLabels = useMemo(() => {
+    const labels = calQuery.data?.counting?.direction_labels || {};
+    return {
+      a_to_b: labels.a_to_b || "A → B",
+      b_to_a: labels.b_to_a || "B → A",
+    };
+  }, [calQuery.data]);
+
+  // Map raw directions to labeled directions
+  const directions = useMemo(() => {
+    const raw = statsQuery.data?.last_24h_by_direction ?? {};
+    const mapped: Record<string, number> = {};
+    
+    // Map each direction to its label
+    for (const [key, value] of Object.entries(raw)) {
+      if (key === "A_TO_B" || key === directionLabels.a_to_b) {
+        mapped[directionLabels.a_to_b] = (mapped[directionLabels.a_to_b] || 0) + (value as number);
+      } else if (key === "B_TO_A" || key === directionLabels.b_to_a) {
+        mapped[directionLabels.b_to_a] = (mapped[directionLabels.b_to_a] || 0) + (value as number);
+      } else {
+        // Keep other labels as-is
+        mapped[key] = value as number;
+      }
     }
-    return null;
+    
+    return mapped;
+  }, [statsQuery.data, directionLabels]);
+
+  // Gate lines for overlay (if needed)
+  const gateLines = useMemo(() => {
+    const counting = calQuery.data?.counting || {};
+    const la = counting.line_a;
+    const lb = counting.line_b;
+    return {
+      lineA: Array.isArray(la) && la.length === 2 ? la.map((p: number[]) => ({ x: p[0], y: p[1] })) : null,
+      lineB: Array.isArray(lb) && lb.length === 2 ? lb.map((p: number[]) => ({ x: p[0], y: p[1] })) : null,
+    };
   }, [calQuery.data]);
 
   const recentEvents = useMemo(() => {
@@ -47,7 +79,7 @@ export default function Dashboard() {
               <div className="text-xs text-slate-400">/api/camera/live.mjpg</div>
             </CardHeader>
             <CardContent>
-              <LiveFeed line={line} />
+              <LiveFeed line={gateLines.lineA} />
             </CardContent>
           </Card>
         </div>
@@ -78,4 +110,3 @@ function formatDuration(seconds: number) {
   const m = Math.floor((seconds % 3600) / 60);
   return `${h}h ${m}m`;
 }
-

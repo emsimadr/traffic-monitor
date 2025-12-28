@@ -16,5 +16,5 @@ counting:
   - - 0.44003690036900367
     - 0.8724887248872488
   direction_labels:
-    a_to_b: northbound
-    b_to_a: southbound
+    a_to_b: southbound
+    b_to_a: northbound
