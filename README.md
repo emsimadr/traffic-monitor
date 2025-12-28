@@ -131,6 +131,141 @@ python src/main.py --config config/config.yaml
 python src/main.py --config config/config.yaml --record
 ```
 
+## Raspberry Pi Deployment
+
+### Quick Start (Automated)
+
+For a fresh Raspberry Pi OS (Bookworm) installation:
+
+```bash
+# SSH into your Pi
+ssh traffic@traffic-pi-01.local
+
+# Clone the repo
+git clone https://github.com/emsimadr/traffic-monitor.git
+cd traffic-monitor
+
+# Run the deployment script
+chmod +x tools/deploy_pi.sh
+sudo ./tools/deploy_pi.sh
+```
+
+This script will:
+- Install system dependencies (python3, opencv, picamera2, etc.)
+- Create the `traffic` service user
+- Set up the app in `/opt/traffic-monitor`
+- Create and enable a systemd service
+
+### Manual Setup
+
+If you prefer manual control or already have the repo cloned:
+
+#### 1. Install system dependencies
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git python3 python3-venv python3-pip python3-opencv python3-picamera2 rpicam-apps
+```
+
+#### 2. Create Python environment
+```bash
+cd ~/traffic-monitor
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+grep -v '^opencv-python' requirements.txt > /tmp/requirements.pi.txt
+pip install -r /tmp/requirements.pi.txt
+```
+
+#### 3. Configure for your camera
+
+**For Picamera2 (CSI ribbon camera):**
+```yaml
+# config/config.yaml
+camera:
+  backend: "picamera2"
+  resolution: [1280, 720]
+  fps: 30
+```
+
+**For RTSP/IP camera:**
+```yaml
+# config/config.yaml
+camera:
+  backend: "opencv"
+  secrets_file: "secrets/camera_secrets.yaml"
+```
+
+```yaml
+# secrets/camera_secrets.yaml
+rtsp_url: "rtsp://192.168.1.100/live0"
+username: "admin"
+password: "yourpassword"
+```
+
+#### 4. Create systemd service
+```bash
+sudo nano /etc/systemd/system/traffic-monitor.service
+```
+
+Paste:
+```ini
+[Unit]
+Description=Traffic Monitor Service
+After=network.target
+
+[Service]
+Type=simple
+User=traffic
+WorkingDirectory=/home/traffic/traffic-monitor
+Environment="PATH=/home/traffic/traffic-monitor/.venv/bin:/usr/bin"
+ExecStart=/home/traffic/traffic-monitor/.venv/bin/python src/main.py --config config/config.yaml
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### 5. Enable and start
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable traffic-monitor
+sudo systemctl start traffic-monitor
+```
+
+#### 6. Check status
+```bash
+sudo systemctl status traffic-monitor
+sudo journalctl -u traffic-monitor -f
+```
+
+### Updating
+
+After the service is set up, use the update script:
+
+```bash
+cd ~/traffic-monitor
+chmod +x tools/update_pi.sh
+./tools/update_pi.sh
+```
+
+Or manually:
+```bash
+sudo systemctl stop traffic-monitor
+git pull
+source .venv/bin/activate
+pip install -r /tmp/requirements.pi.txt
+sudo systemctl start traffic-monitor
+```
+
+### Accessing the Web UI
+
+Once running, access the dashboard at:
+```
+http://traffic-pi-01.local:5000/
+```
+
+---
+
 ## Web UI (Headless)
 
 This project includes a lightweight Web UI (FastAPI + Jinja templates) intended for headless deployments:
