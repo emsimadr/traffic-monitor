@@ -131,6 +131,27 @@ python src/main.py --config config/config.yaml
 python src/main.py --config config/config.yaml --record
 ```
 
+## Web UI (Headless)
+
+This project includes a lightweight Web UI (FastAPI + Jinja templates) intended for headless deployments:
+
+- **Dashboard**: counts + health summary + camera snapshot
+- **Config**: edit `config/config.yaml` overrides (defaults in `config/default.yaml`)
+- **Calibration (v0)**: live snapshot/preview (ROI/line editor planned)
+- **Logs**: tail of `logs/traffic_monitor.log`
+
+### Run the Web UI
+
+```bash
+python -m uvicorn src.web.app:app --host 0.0.0.0 --port 8000
+```
+
+Then open `http://<pi-ip>:8000/` on your LAN.
+
+### Notes
+
+- The MJPEG endpoint (`/api/camera/stream.mjpg`) opens the camera for the duration of the stream. In a future version, camera access should be coordinated with the detection pipeline.
+
 ## Contributing
 Contributions are welcome! Please open an issue or submit a Pull Request.
 

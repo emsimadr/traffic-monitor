@@ -38,6 +38,7 @@ from ops.logging import setup_logging
 from web.app import create_app
 from web.state import state as web_state
 import threading
+import uvicorn
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively merge override into base and return base."""
@@ -162,6 +163,22 @@ def validate_config(config: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     elif 'counting_line_position' not in detection:
         # Fallback for old config
         return False, "Missing detection.counting_line or detection.counting_line_position"
+
+    # Optional tracking settings (used by VehicleTracker)
+    tracking = config.get('tracking', {}) or {}
+    if tracking:
+        if 'max_frames_since_seen' in tracking:
+            mfs = tracking['max_frames_since_seen']
+            if not isinstance(mfs, int) or mfs <= 0:
+                return False, "tracking.max_frames_since_seen must be a positive integer"
+        if 'min_trajectory_length' in tracking:
+            mtl = tracking['min_trajectory_length']
+            if not isinstance(mtl, int) or mtl <= 0:
+                return False, "tracking.min_trajectory_length must be a positive integer"
+        if 'iou_threshold' in tracking:
+            iou = tracking['iou_threshold']
+            if not isinstance(iou, (int, float)) or not (0 < iou <= 1):
+                return False, "tracking.iou_threshold must be between 0 and 1"
     
     # Validate storage settings
     storage = config.get('storage', {})
@@ -277,8 +294,12 @@ def main():
         web_state.update_system_stats({"start_time": time.time()})
         
         def run_web_app():
-            app = create_app()
-            app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+            uvicorn.run(
+                create_app(),
+                host="0.0.0.0",
+                port=5000,
+                log_level="info",
+            )
             
         web_thread = threading.Thread(target=run_web_app, daemon=True)
         web_thread.start()
@@ -305,10 +326,11 @@ def main():
             detector = BgSubDetector(vehicle_detector)
         
         # Initialize vehicle tracker
+        tracking_cfg = config.get('tracking', {}) or {}
         tracker = VehicleTracker(
-            max_frames_since_seen=10,
-            min_trajectory_length=3,
-            iou_threshold=0.3
+            max_frames_since_seen=int(tracking_cfg.get('max_frames_since_seen', 10)),
+            min_trajectory_length=int(tracking_cfg.get('min_trajectory_length', 3)),
+            iou_threshold=float(tracking_cfg.get('iou_threshold', 0.3)),
         )
         
         # Initialize counters
@@ -374,7 +396,19 @@ def main():
             
             # Calculate counting line in pixels
             frame_height, frame_width = frame.shape[:2]
-            counting_line = compute_counting_line(counting_config, frame_width, frame_height)
+            # Allow live updates from the web calibration UI without restarting.
+            try:
+                live_cfg = web_state.get_config_copy() or {}
+                live_det = (live_cfg.get("detection", {}) or {})
+                live_counting_cfg = live_det.get("counting_line")
+            except Exception:
+                live_counting_cfg = None
+
+            counting_line = compute_counting_line(
+                live_counting_cfg if live_counting_cfg is not None else counting_config,
+                frame_width,
+                frame_height,
+            )
             
             # Update tracker and get vehicles that crossed the line
             vehicles_to_count = tracker.update(vehicles, counting_line)

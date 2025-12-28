@@ -19,6 +19,7 @@ class SharedState:
                     cls._instance.frame_lock = threading.Lock()
                     cls._instance.database = None
                     cls._instance.config = None
+                    cls._instance.config_lock = threading.Lock()
                     cls._instance.config_path = None
                     cls._instance.system_stats = {
                         "fps": 0,
@@ -47,8 +48,20 @@ class SharedState:
         self.database = db
         
     def set_config(self, config, config_path):
-        self.config = config
-        self.config_path = config_path
+        with self.config_lock:
+            self.config = config
+            self.config_path = config_path
+
+    def get_config_copy(self):
+        with self.config_lock:
+            if self.config is None:
+                return None
+            # shallow copy of dict tree is fine for read-mostly usage
+            return dict(self.config)
+
+    def update_config(self, new_config):
+        with self.config_lock:
+            self.config = new_config
 
     def update_system_stats(self, stats):
         self.system_stats.update(stats)

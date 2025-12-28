@@ -1,15 +1,11 @@
-# Local overrides (not meant to be identical to default.yaml).
-#
-# The application loads `config/default.yaml` first, then overlays this file if present.
-# Put only the keys you want to override here.
-#
-# Example:
-#
-# camera:
-#   backend: "opencv"
-#   device_id: 0
-#
-# detection:
-#   backend: "yolo"
-#   yolo:
-#     model: "yolov8n.pt"
+camera:
+  swap_rb: false
+  rotate: 0
+  flip_horizontal: false
+  flip_vertical: false
+detection:
+  counting_line:
+  - - 0.5943195850827365
+    - 0.02514954372789591
+  - - 0.35880464312175847
+    - 0.9948041741256604

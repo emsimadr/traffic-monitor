@@ -46,6 +46,9 @@ class Database:
                 cloud_synced INTEGER DEFAULT 0
             )
             ''')
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_vehicle_detections_ts_dir ON vehicle_detections(timestamp, direction)"
+            )
             
             # Create hourly_counts table for aggregated data
             cursor.execute('''
@@ -146,6 +149,37 @@ class Database:
         except sqlite3.Error as e:
             logging.error(f"Error getting vehicle count: {e}")
             return 0
+
+    def get_direction_counts(self, start_time=None, end_time=None):
+        """
+        Get vehicle counts grouped by direction for a time range.
+
+        Args:
+            start_time: Start time as Unix timestamp (default: 24 hours ago)
+            end_time: End time as Unix timestamp (default: now)
+
+        Returns:
+            dict mapping direction -> count
+        """
+        try:
+            if self.conn is None:
+                self.conn = sqlite3.connect(self.local_database_path)
+
+            cursor = self.conn.cursor()
+
+            if start_time is None:
+                start_time = time.time() - 86400
+            if end_time is None:
+                end_time = time.time()
+
+            cursor.execute(
+                "SELECT direction, COUNT(*) FROM vehicle_detections WHERE timestamp BETWEEN ? AND ? GROUP BY direction",
+                (start_time, end_time),
+            )
+            return {row[0] or "unknown": int(row[1]) for row in cursor.fetchall()}
+        except sqlite3.Error as e:
+            logging.error(f"Error getting direction counts: {e}")
+            return {}
     
     def update_hourly_counts(self):
         """

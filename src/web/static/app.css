@@ -1,0 +1,163 @@
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  margin: 0;
+  background: #0b0f14;
+  color: #e8eef6;
+}
+
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.topbar {
+  background: #121a24;
+  border-bottom: 1px solid #1f2a37;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.nav a {
+  color: #b7c5d6;
+  text-decoration: none;
+  margin-left: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.nav a.active,
+.nav a:hover {
+  background: #1b2634;
+  color: #ffffff;
+}
+
+h1 {
+  margin: 10px 0 14px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: #111827;
+  border: 1px solid #1f2a37;
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 12px;
+}
+
+.stats-bar {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  text-align: center;
+  flex-wrap: nowrap;
+}
+
+.stat {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.stat .value {
+  font-size: 26px;
+}
+
+.stat-main .value.big {
+  font-size: 34px;
+}
+
+.label {
+  color: #9fb0c3;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.value {
+  font-size: 28px;
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.muted {
+  color: #9fb0c3;
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.snapshot {
+  max-width: 420px;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #1f2a37;
+}
+
+.live-shell .live-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.live-shell img {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #1f2a37;
+  display: block;
+}
+
+#live-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+pre {
+  overflow: auto;
+  background: #0b1220;
+  border: 1px solid #1f2a37;
+  padding: 12px;
+  border-radius: 10px;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 240px;
+  background: #0b1220;
+  color: #e8eef6;
+  border: 1px solid #1f2a37;
+  border-radius: 10px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.btn {
+  background: #2563eb;
+  border: 0;
+  color: white;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: #1d4ed8;
+}
+
+

@@ -34,6 +34,7 @@ class OpenCVCamera:
         buffer_size: int = 1,
         max_retries: int = 3,
         rtsp_transport: str = "tcp",
+        swap_rb: bool = False,
     ) -> None:
         self.device_id = device_id
         self.resolution = resolution
@@ -41,6 +42,7 @@ class OpenCVCamera:
         self.buffer_size = buffer_size
         self.max_retries = max_retries
         self.rtsp_transport = rtsp_transport
+        self.swap_rb = swap_rb
 
         self._cap: Optional[cv2.VideoCapture] = None
         self._consecutive_failures = 0
@@ -121,6 +123,11 @@ class OpenCVCamera:
             else:
                 logging.error("Too many consecutive camera read failures")
                 return False, None
+
+        if ret and frame is not None and self.swap_rb:
+            # Some cameras / pipelines deliver RGB frames while downstream expects BGR.
+            # A simple channel swap fixes "weird colors" without touching the rest of the pipeline.
+            frame = frame[..., ::-1].copy()
 
         return ret, frame
 

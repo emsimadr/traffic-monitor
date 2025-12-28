@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title or "Traffic Monitor" }}</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container">
+        <div class="brand">Traffic Monitor</div>
+        <nav class="nav">
+          <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
+          <a href="/config" class="{{ 'active' if request.url.path.startswith('/config') else '' }}">Config</a>
+          <a href="/calibration" class="{{ 'active' if request.url.path.startswith('/calibration') else '' }}">Calibration</a>
+          <a href="/logs" class="{{ 'active' if request.url.path.startswith('/logs') else '' }}">Logs</a>
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
+
+

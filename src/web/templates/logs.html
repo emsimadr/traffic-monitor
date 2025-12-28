@@ -1,0 +1,15 @@
+{% extends "_layout.html" %}
+{% block content %}
+  <h1>Logs</h1>
+  <p class="muted">Shows the tail of <code>{{ cfg.log_path }}</code>.</p>
+
+  <section class="card">
+    <div class="row">
+      <button id="refreshLogsBtn" class="btn">Refresh</button>
+      <span class="muted">Tip: add <code>?lines=500</code> in the API call for more.</span>
+    </div>
+    <pre id="logsPre">(loading...)</pre>
+  </section>
+{% endblock %}
+
+

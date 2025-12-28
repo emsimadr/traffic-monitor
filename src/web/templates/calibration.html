@@ -1,0 +1,349 @@
+{% extends "_layout.html" %}
+{% block content %}
+  <style>
+    .calib-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 12px;
+    }
+    .video-wrap {
+      position: relative;
+      width: 100%;
+    }
+    #video-feed {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #1f2a37;
+      display: block;
+    }
+    #overlay {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+    }
+    .badge {
+      background: #1b2634;
+      color: #b7c5d6;
+      padding: 6px 10px;
+      border-radius: 10px;
+      font-size: 13px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: #0b1220;
+      border: 1px solid #1f2a37;
+      color: #9fb0c3;
+      font-size: 13px;
+    }
+    .pill .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+    }
+    .divider {
+      margin: 8px 0;
+      border-bottom: 1px solid #1f2a37;
+    }
+  </style>
+
+  <h1>Calibration</h1>
+  <p class="muted">Place a counting line, adjust colors/orientation, and tune tracker behaviour. The line is stored as ratios (0..1) and applied live.</p>
+
+  <div class="calib-grid">
+    <section class="card">
+      <div class="row" style="justify-content: space-between; align-items: center;">
+        <div class="label">Counting line</div>
+        <div class="badge" id="line-status">Click P1</div>
+      </div>
+      <div class="divider"></div>
+      <div class="video-wrap">
+        <img src="/api/camera/live.mjpg" id="video-feed" alt="Video Stream">
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="muted" style="margin-top:8px;">
+        Click two points (P1 then P2). Use Reset to start over. Orientation hint: treat P1→P2 as the forward direction.
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row" style="justify-content: space-between; align-items: center;">
+        <div>
+          <div class="label">Image calibration</div>
+          <div class="muted" style="font-size:12px;">Preview applies these transforms live.</div>
+        </div>
+        <div class="pill"><span class="dot"></span>Live</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row" style="flex-direction: column; align-items: flex-start; gap:10px;">
+        <label class="row">
+          <input type="checkbox" id="swap-rb">
+          <span class="muted">Swap R/B (fix weird colors)</span>
+        </label>
+
+        <label class="label" style="margin-top:4px;">Rotate</label>
+        <select id="rotate" class="textarea" style="min-height:0; height:38px; width:140px; padding:8px;">
+          <option value="0">0°</option>
+          <option value="90">90°</option>
+          <option value="180">180°</option>
+          <option value="270">270°</option>
+        </select>
+
+        <label class="row">
+          <input type="checkbox" id="flip-h">
+          <span class="muted">Flip horizontal</span>
+        </label>
+        <label class="row">
+          <input type="checkbox" id="flip-v">
+          <span class="muted">Flip vertical</span>
+        </label>
+
+        <div class="divider"></div>
+
+        <div class="label">Tracking</div>
+        <div class="muted" style="font-size:12px;">Adjust how long tracks persist, how many points define direction, and IoU match threshold.</div>
+        <label class="muted">Max frames unseen
+          <input type="number" id="trk-mfs" class="textarea" style="min-height:0; height:38px; width:140px; padding:8px;" min="1">
+        </label>
+        <label class="muted">Min trajectory length
+          <input type="number" id="trk-mtl" class="textarea" style="min-height:0; height:38px; width:140px; padding:8px;" min="1">
+        </label>
+        <label class="muted">IoU threshold
+          <input type="number" step="0.01" id="trk-iou" class="textarea" style="min-height:0; height:38px; width:140px; padding:8px;" min="0.01" max="1">
+        </label>
+
+        <div class="divider"></div>
+
+        <div class="row" style="gap:8px;">
+          <button class="btn" id="reset-line" style="background:#1b2634;">Reset line</button>
+          <button class="btn" id="save">Save</button>
+        </div>
+        <div class="muted" style="font-size:12px;">
+          Saving persists to <code>config/config.yaml</code>. Changes apply live; some camera drivers may need restart.
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="label">Payload preview</div>
+      <pre id="debug" class="muted" style="margin-top:6px;">{}</pre>
+    </section>
+  </div>
+
+  <script>
+    const img = document.getElementById('video-feed');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+    const statusEl = document.getElementById('line-status');
+    const debugEl = document.getElementById('debug');
+
+    let p1 = null; // {xRatio, yRatio}
+    let p2 = null;
+    let existingLine = null;
+
+    function canvasSizeToImage() {
+      const rect = img.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.floor(rect.width));
+      canvas.height = Math.max(1, Math.floor(rect.height));
+    }
+
+    function positiveIntOrNull(val) {
+      const n = parseInt(val ?? '', 10);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    }
+
+    function iouOrNull(val) {
+      const n = parseFloat(val ?? '');
+      return Number.isFinite(n) && n > 0 && n <= 1 ? n : null;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const drawPoint = (p, color) => {
+        const x = p.xRatio * canvas.width;
+        const y = p.yRatio * canvas.height;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, Math.PI * 2);
+        ctx.fill();
+      };
+
+      const drawLine = (a, b, color) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(a.xRatio * canvas.width, a.yRatio * canvas.height);
+        ctx.lineTo(b.xRatio * canvas.width, b.yRatio * canvas.height);
+        ctx.stroke();
+      };
+
+      if (existingLine && (!p1 && !p2)) {
+        drawLine(existingLine[0], existingLine[1], 'rgba(255,255,0,0.85)');
+      }
+
+      if (p1) drawPoint(p1, 'rgba(0,255,0,0.9)');
+      if (p2) {
+        drawPoint(p2, 'rgba(0,255,0,0.9)');
+        drawLine(p1, p2, 'rgba(0,255,0,0.9)');
+      }
+    }
+
+    function setStatus() {
+      if (!p1) statusEl.innerText = "Click P1";
+      else if (!p2) statusEl.innerText = "Click P2";
+      else statusEl.innerText = "Line ready";
+    }
+
+    function ratiosFromEvent(ev) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (ev.clientX - rect.left) / rect.width;
+      const y = (ev.clientY - rect.top) / rect.height;
+      return {
+        xRatio: Math.max(0, Math.min(1, x)),
+        yRatio: Math.max(0, Math.min(1, y)),
+      };
+    }
+
+    canvas.addEventListener('click', (ev) => {
+      const p = ratiosFromEvent(ev);
+      if (!p1) p1 = p;
+      else p2 = p;
+      setStatus();
+      draw();
+      updateDebug();
+    });
+
+    function updateDebug() {
+      const cam = {
+        swap_rb: document.getElementById('swap-rb').checked,
+        rotate: parseInt(document.getElementById('rotate').value || '0'),
+        flip_horizontal: document.getElementById('flip-h').checked,
+        flip_vertical: document.getElementById('flip-v').checked,
+      };
+      const det = {
+        counting_line: (p1 && p2) ? [[p1.xRatio, p1.yRatio], [p2.xRatio, p2.yRatio]] : null,
+      };
+      const trk = {
+        max_frames_since_seen: positiveIntOrNull(document.getElementById('trk-mfs').value),
+        min_trajectory_length: positiveIntOrNull(document.getElementById('trk-mtl').value),
+        iou_threshold: iouOrNull(document.getElementById('trk-iou').value),
+      };
+      debugEl.innerText = JSON.stringify({camera: cam, detection: det, tracking: trk}, null, 2);
+    }
+
+    async function loadCalibration() {
+      const res = await fetch('/api/calibration');
+      const data = await res.json();
+
+      document.getElementById('swap-rb').checked = !!(data.camera && data.camera.swap_rb);
+      document.getElementById('rotate').value = String((data.camera && data.camera.rotate) || 0);
+      document.getElementById('flip-h').checked = !!(data.camera && data.camera.flip_horizontal);
+      document.getElementById('flip-v').checked = !!(data.camera && data.camera.flip_vertical);
+
+      if (data.detection && Array.isArray(data.detection.counting_line) && data.detection.counting_line.length === 2) {
+        existingLine = [
+          {xRatio: data.detection.counting_line[0][0], yRatio: data.detection.counting_line[0][1]},
+          {xRatio: data.detection.counting_line[1][0], yRatio: data.detection.counting_line[1][1]},
+        ];
+      } else {
+        existingLine = null;
+      }
+
+      if (data.tracking) {
+        document.getElementById('trk-mfs').value = data.tracking.max_frames_since_seen ?? 10;
+        document.getElementById('trk-mtl').value = data.tracking.min_trajectory_length ?? 3;
+        document.getElementById('trk-iou').value = data.tracking.iou_threshold ?? 0.3;
+      } else {
+        document.getElementById('trk-mfs').value = 10;
+        document.getElementById('trk-mtl').value = 3;
+        document.getElementById('trk-iou').value = 0.3;
+      }
+
+      updateDebug();
+      setStatus();
+      draw();
+    }
+
+    async function saveCalibration() {
+      const payload = {
+        camera: {
+          swap_rb: document.getElementById('swap-rb').checked,
+          rotate: parseInt(document.getElementById('rotate').value || '0'),
+          flip_horizontal: document.getElementById('flip-h').checked,
+          flip_vertical: document.getElementById('flip-v').checked,
+        },
+        detection: {
+          counting_line: (p1 && p2) ? [[p1.xRatio, p1.yRatio], [p2.xRatio, p2.yRatio]] : null,
+        },
+        tracking: {
+          max_frames_since_seen: positiveIntOrNull(document.getElementById('trk-mfs').value),
+          min_trajectory_length: positiveIntOrNull(document.getElementById('trk-mtl').value),
+          iou_threshold: iouOrNull(document.getElementById('trk-iou').value),
+        }
+      };
+
+      const res = await fetch('/api/calibration', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert('Failed to save: ' + (data.detail || data.error || 'unknown error'));
+        return;
+      }
+      if (payload.detection.counting_line) {
+        existingLine = [
+          {xRatio: payload.detection.counting_line[0][0], yRatio: payload.detection.counting_line[0][1]},
+          {xRatio: payload.detection.counting_line[1][0], yRatio: payload.detection.counting_line[1][1]},
+        ];
+      }
+      p1 = null;
+      p2 = null;
+      setStatus();
+      draw();
+      updateDebug();
+    }
+
+    document.getElementById('reset-line').addEventListener('click', () => {
+      p1 = null;
+      p2 = null;
+      setStatus();
+      draw();
+      updateDebug();
+    });
+
+    document.getElementById('save').addEventListener('click', saveCalibration);
+    document.getElementById('swap-rb').addEventListener('change', updateDebug);
+    document.getElementById('rotate').addEventListener('change', updateDebug);
+    document.getElementById('flip-h').addEventListener('change', updateDebug);
+    document.getElementById('flip-v').addEventListener('change', updateDebug);
+    document.getElementById('trk-mfs').addEventListener('input', updateDebug);
+    document.getElementById('trk-mtl').addEventListener('input', updateDebug);
+    document.getElementById('trk-iou').addEventListener('input', updateDebug);
+
+    window.addEventListener('resize', () => {
+      canvasSizeToImage();
+      draw();
+    });
+
+    img.addEventListener('load', () => {
+      canvasSizeToImage();
+      draw();
+    });
+
+    canvasSizeToImage();
+    loadCalibration();
+    setInterval(draw, 500);
+  </script>
+{% endblock %}

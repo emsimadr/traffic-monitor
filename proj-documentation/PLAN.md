@@ -34,13 +34,14 @@ We need **credible quantitative evidence** (counts, patterns, and eventually spe
 
 ### What’s already implemented (current repo status)
 
-Milestone 1 foundation exists:
+Milestone 1 foundation exists and now includes a FastAPI web UI:
 
-- **Capture (current)**: USB camera index or RTSP URL, with retry logic (`src/camera/capture.py`).
+- **Capture (current)**: USB camera index or RTSP URL, with retry logic (`src/camera/capture.py` / `src/camera/backends/opencv.py`).
 - **Detection**: background-subtraction-based vehicle detection (`src/detection/vehicle.py`).
-- **Tracking**: IoU-based tracking to prevent double counting and infer crossing direction (`src/detection/tracker.py`).
+- **Tracking**: IoU-based tracking to prevent double counting and infer crossing direction (`src/detection/tracker.py`); configurable via `tracking` section (max_frames_since_seen, min_trajectory_length, iou_threshold).
 - **Storage**: SQLite + hourly/daily aggregates + retention cleanup (`src/storage/database.py`).
 - **Cloud sync (optional)**: periodic background sync to BigQuery + video sample upload to Cloud Storage (`src/cloud/sync.py`).
+- **Web UI (current)**: FastAPI + Jinja templates, MJPEG live view with overlayed counting line, stats summary, config editor, calibration page, and logs (`src/web/` routes/services/static/templates). Served via Uvicorn in a background thread from `src/main.py`.
 
 ---
 
@@ -76,11 +77,16 @@ This section is intended to be “handoff-friendly” for someone new.
 
 - `src/main.py` loads `config/config.yaml` (and `config/cloud_config.yaml` if present), configures logging, then runs an infinite frame loop.
 - Each frame:
-  - is read from `VideoCapture` (USB index or RTSP URL with retry/backoff),
-  - is passed to `VehicleDetector.detect()` (background subtraction + morphological cleanup + contour filtering + heuristics),
+  - is read from `create_camera` (USB/RTSP; retry/backoff),
+  - is passed to `VehicleDetector.detect()` (background subtraction + morphological cleanup + contour filtering + heuristics; YOLO when enabled),
   - produces bounding boxes which are fed to `VehicleTracker.update()` (IoU matching + “line side change” crossing logic),
   - writes counted crossings into SQLite (`vehicle_detections`) and periodically updates aggregates (`hourly_counts`, `daily_counts`).
 - If cloud is enabled, a background thread periodically syncs unsynced rows to BigQuery and can upload occasional video samples to Cloud Storage.
+- A FastAPI web server (Uvicorn) runs in a background thread, serving:
+  - Live MJPEG with an overlayed counting line (`/api/camera/live.mjpg` + canvas overlay in dashboard)
+  - Stats endpoints (`/api/stats/*`) and a summary dashboard
+  - Config editor and calibration routes (`/config`, `/calibration`, `/api/config`, `/api/calibration`)
+  - Logs viewer (`/logs`, `/api/logs/tail`)
 
 ### Detection heuristics already in play (so we don’t forget them)
 
