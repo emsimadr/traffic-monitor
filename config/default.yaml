@@ -6,11 +6,17 @@
 # Camera settings
 camera:
   # backend selection:
-  # - "opencv": supports USB webcams (device_id: 0) AND RTSP IP cameras (device_id: "rtsp://...")
+  # - "opencv": supports USB webcams (device_id: 0) AND RTSP IP cameras
   # - "picamera2": supports Raspberry Pi CSI cameras (ignores device_id)
   backend: "opencv"
-  device_id: "rtsp://192.168.4.45/live0"  # Base IP camera URL
-  secrets_file: "secrets/camera_secrets.yaml" # Path to credentials file
+  # device_id: 0 for USB webcam, or omit for RTSP (loaded from secrets_file)
+  device_id: 0
+  # For RTSP cameras: put rtsp_url + credentials in secrets/camera_secrets.yaml
+  # Example secrets file:
+  #   rtsp_url: "rtsp://192.168.1.100/live0"
+  #   username: "user"
+  #   password: "pass"
+  secrets_file: "secrets/camera_secrets.yaml"
   resolution: [1280, 720]        # Camera resolution [width, height]
   fps: 30                        # Frames per second
   # Optional image calibration (applied after capture, before detection)

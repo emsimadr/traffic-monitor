@@ -20,28 +20,40 @@ from .backends.picamera2 import Picamera2Camera, Picamera2Config
 
 def inject_rtsp_credentials(camera_cfg: Dict[str, Any]) -> None:
     """
-    If the camera device_id is RTSP and a secrets file is provided, inject
-    username/password into the RTSP URL in-place.
+    Load RTSP connection info from secrets file if provided.
+    
+    Supports two modes:
+    1. Full URL in secrets: secrets.rtsp_url is used as device_id (credentials can be embedded or separate)
+    2. Credentials only: secrets.username + secrets.password are injected into config's device_id
+    
+    The secrets file (e.g., secrets/camera_secrets.yaml) can contain:
+      rtsp_url: "rtsp://192.168.1.100/stream"  # base URL or full URL with creds
+      username: "user"
+      password: "pass"
     """
-
-    device_id = camera_cfg.get("device_id")
     secrets_file = camera_cfg.get("secrets_file")
-    if not (isinstance(device_id, str) and device_id.startswith("rtsp://") and secrets_file):
-        return
-
-    if not os.path.exists(secrets_file):
+    if not secrets_file or not os.path.exists(secrets_file):
         return
 
     with open(secrets_file, "r") as f:
         secrets = yaml.safe_load(f) or {}
 
-    username = secrets.get("username")
-    password = secrets.get("password")
-    if not (username and password):
+    # If secrets has rtsp_url, use it as the base device_id
+    rtsp_url = secrets.get("rtsp_url")
+    if rtsp_url:
+        camera_cfg["device_id"] = rtsp_url
+
+    # Get current device_id (possibly just set from rtsp_url)
+    device_id = camera_cfg.get("device_id")
+    if not isinstance(device_id, str) or not device_id.startswith("rtsp://"):
         return
 
-    protocol, rest = device_id.split("://", 1)
-    camera_cfg["device_id"] = f"{protocol}://{username}:{password}@{rest}"
+    # Inject credentials if URL doesn't already have them
+    username = secrets.get("username")
+    password = secrets.get("password")
+    if username and password and "@" not in device_id.split("://")[1].split("/")[0]:
+        protocol, rest = device_id.split("://", 1)
+        camera_cfg["device_id"] = f"{protocol}://{username}:{password}@{rest}"
 
 
 def create_camera(camera_cfg: Dict[str, Any]) -> Camera:
