@@ -273,6 +273,10 @@ class CloudSync:
                 # Remove SQLite-specific fields
                 if 'cloud_synced' in row:
                     del row['cloud_synced']
+                # Remove direction_label if BigQuery table doesn't have it yet
+                # (can be re-enabled after running: ALTER TABLE ... ADD COLUMN direction_label STRING)
+                if 'direction_label' in row:
+                    del row['direction_label']
                 
                 # Validate data before adding
                 if self._validate_vehicle_detection(row):
@@ -572,9 +576,13 @@ class CloudSync:
                 logging.warning(f"Invalid date_time format: {date_time}")
                 return False
             
-            # Validate direction if present
+            # Validate direction if present (accept legacy and gate-based values)
             direction = row.get('direction')
-            if direction is not None and direction not in ['northbound', 'southbound', 'unknown']:
+            valid_directions = [
+                'northbound', 'southbound', 'unknown',  # legacy
+                'A_TO_B', 'B_TO_A',  # gate-based raw directions
+            ]
+            if direction is not None and direction not in valid_directions:
                 logging.warning(f"Invalid direction: {direction}")
                 return False
             
