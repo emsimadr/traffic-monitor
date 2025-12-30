@@ -63,11 +63,7 @@ class CountingService:
         # Update aggregates and persistence
         for event in events:
             self._accumulate_counts(event)
-            self.ctx.db.add_vehicle_detection(
-                timestamp=event.timestamp,
-                direction=event.direction,
-                direction_label=event.direction_label,
-            )
+            self.ctx.db.add_count_event(event)
 
         return events
 

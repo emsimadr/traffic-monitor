@@ -154,11 +154,7 @@ class MeasureStage:
             return
         
         try:
-            self._db.add_vehicle_detection(
-                timestamp=event.timestamp,
-                direction=event.direction,
-                direction_label=event.direction_label,
-            )
+            self._db.add_count_event(event)
         except Exception as e:
             logging.error(f"Failed to persist count event: {e}")
 

@@ -211,13 +211,9 @@ class PipelineEngine:
             frame_h, frame_w = frame.shape[:2]
             self._counting_service.ensure_counter(frame_w, frame_h, fallback_counting_config=None)
             events = self._counting_service.counter.process(active_tracks, self.stats.frame_count)
-            # Persist events (legacy path)
+            # Persist events (legacy path uses add_count_event)
             for event in events:
-                self._counting_service.ctx.db.add_vehicle_detection(
-                    timestamp=event.timestamp,
-                    direction=event.direction,
-                    direction_label=event.direction_label,
-                )
+                self._counting_service.ctx.db.add_count_event(event)
         
         # Accumulate statistics
         for event in events:

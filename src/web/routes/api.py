@@ -380,10 +380,10 @@ def live_stats():
                 mapped[label] = mapped.get(label, 0) + cnt
             return mapped
 
-        total = state.database.get_vehicle_count()
-        last_hour = state.database.get_vehicle_count(start_time=time.time() - 3600)
-        by_direction_24h = map_dirs(state.database.get_direction_counts(start_time=time.time() - 86400))
-        by_direction_1h = map_dirs(state.database.get_direction_counts(start_time=time.time() - 3600))
+        total = state.database.get_count_total()
+        last_hour = state.database.get_count_total(start_time=time.time() - 3600)
+        by_direction_24h = map_dirs(state.database.get_counts_by_direction_code(start_time=time.time() - 86400))
+        by_direction_1h = map_dirs(state.database.get_counts_by_direction_code(start_time=time.time() - 3600))
         uptime = time.time() - state.system_stats.get("start_time", time.time())
         fps = state.system_stats.get("fps", 0)
         cloud_enabled = getattr(state.database, "cloud_enabled", False)
@@ -435,8 +435,8 @@ def stats_range(start_ts: Optional[float] = None, end_ts: Optional[float] = None
                 mapped[label] = mapped.get(label, 0) + cnt
             return mapped
 
-        total = state.database.get_vehicle_count(start_time=start_ts, end_time=end_ts)
-        by_direction = map_dirs(state.database.get_direction_counts(start_time=start_ts, end_time=end_ts))
+        total = state.database.get_count_total(start_time=start_ts, end_time=end_ts)
+        by_direction = map_dirs(state.database.get_counts_by_direction_code(start_time=start_ts, end_time=end_ts))
         return {
             "start_ts": start_ts,
             "end_ts": end_ts,
