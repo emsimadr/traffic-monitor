@@ -42,6 +42,7 @@ import uvicorn
 
 from runtime.context import RuntimeContext
 from runtime.services import CountingService, FrameIngestService
+from pipeline.engine import PipelineEngine, PipelineConfig, create_engine_from_config
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively merge override into base and return base."""
@@ -198,6 +199,10 @@ def main():
                         help='Enable visual display')
     parser.add_argument('--record', action='store_true',
                         help='Record video output')
+    parser.add_argument('--new-engine', action='store_true',
+                        help='Use new pipeline engine (experimental)')
+    parser.add_argument('--legacy', action='store_true',
+                        help='Force legacy main loop (overrides config)')
     args = parser.parse_args()
     
     # Load configuration
@@ -361,7 +366,37 @@ def main():
         counting_service = CountingService(ctx, counting_cfg)
         ingest = FrameIngestService(ctx, counting_service, counting_config_fallback=None)
         
-        # Main processing loop
+        # Determine which engine to use
+        # Priority: --legacy flag > --new-engine flag > config setting > default (legacy)
+        use_new_engine = False
+        if args.legacy:
+            use_new_engine = False
+            logging.info("Using legacy main loop (--legacy flag)")
+        elif args.new_engine:
+            use_new_engine = True
+            logging.info("Using new pipeline engine (--new-engine flag)")
+        else:
+            pipeline_cfg = config.get("pipeline", {})
+            use_new_engine = pipeline_cfg.get("use_new_engine", False)
+            if use_new_engine:
+                logging.info("Using new pipeline engine (config: pipeline.use_new_engine=true)")
+            else:
+                logging.info("Using legacy main loop (default)")
+        
+        # Run with new pipeline engine if enabled
+        if use_new_engine:
+            engine = create_engine_from_config(
+                config=config,
+                ctx=ctx,
+                counting_service=counting_service,
+                display=args.display,
+                record=args.record,
+            )
+            engine.run()
+            # Engine handles its own cleanup, skip legacy cleanup
+            return
+        
+        # Legacy main processing loop
         consecutive_frame_failures = 0
         max_frame_failures = 10
         

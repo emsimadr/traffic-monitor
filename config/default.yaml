@@ -73,4 +73,11 @@ tracking:
 log_path: "logs/traffic_monitor.log"  # Path to log file
 log_level: "INFO"                     # Logging level (DEBUG, INFO, WARNING, ERROR)
 
+# Pipeline settings (experimental)
+pipeline:
+  # Use the new pipeline engine (observation layer).
+  # Set to true to enable the new modular pipeline architecture.
+  # Default: false (uses legacy main loop for safety).
+  use_new_engine: false
+
 
