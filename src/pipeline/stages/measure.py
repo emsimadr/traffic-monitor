@@ -3,6 +3,10 @@ Measure stage for counting tracked objects.
 
 This stage uses a Counter to produce CountEvents from tracks,
 then persists events to storage exactly as before.
+
+Supports two counting modes:
+- "line": Single line crossing (LineCounter)
+- "gate": Two-line gate sequence (GateCounter)
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from models.count_event import CountEvent
 from algorithms.counting.base import Counter
 from algorithms.counting.line import LineCounter, LineCounterConfig, create_line_counter_from_config
+from algorithms.counting.gate import GateCounter, GateCounterConfig, create_gate_counter_from_config
 
 
 @dataclass
@@ -81,6 +86,10 @@ class MeasureStage:
         """
         Ensure the counter is initialized for the given frame size.
         
+        Selects counter based on config mode:
+        - "gate": GateCounter (two-line gate sequence)
+        - "line" or default: LineCounter (single line crossing)
+        
         Args:
             frame_width: Frame width in pixels.
             frame_height: Frame height in pixels.
@@ -89,16 +98,24 @@ class MeasureStage:
             return
         
         self._frame_size = (frame_width, frame_height)
-        self._counter = create_line_counter_from_config(
-            self._config.counting_config,
-            frame_width,
-            frame_height,
-        )
+        mode = self._config.counting_config.get("mode", "line")
         
-        logging.debug(
-            f"MeasureStage initialized counter: "
-            f"lines={len(self._counter.get_lines())}"
-        )
+        if mode == "gate":
+            self._counter = create_gate_counter_from_config(
+                self._config.counting_config,
+                frame_width,
+                frame_height,
+            )
+            logging.info(f"MeasureStage initialized GateCounter (mode=gate)")
+        else:
+            self._counter = create_line_counter_from_config(
+                self._config.counting_config,
+                frame_width,
+                frame_height,
+            )
+            logging.info(f"MeasureStage initialized LineCounter (mode={mode})")
+        
+        logging.debug(f"Counting lines: {len(self._counter.get_lines())}")
 
     def process(self, tracks: List[Any], frame_idx: int) -> List[CountEvent]:
         """
@@ -153,15 +170,22 @@ class MeasureStage:
 
     def get_line_a(self) -> Optional[List[Tuple[int, int]]]:
         """Get line A for visualization (compatibility with old API)."""
-        if not isinstance(self._counter, LineCounter):
+        if self._counter is None:
             return None
-        return self._counter.line_a if self._counter.line_a else None
+        if isinstance(self._counter, GateCounter):
+            return self._counter.line_a if self._counter.line_a else None
+        if isinstance(self._counter, LineCounter):
+            return self._counter.line if self._counter.line else None
+        return None
 
     def get_line_b(self) -> Optional[List[Tuple[int, int]]]:
         """Get line B for visualization (compatibility with old API)."""
-        if not isinstance(self._counter, LineCounter):
+        if self._counter is None:
             return None
-        return self._counter.line_b if self._counter.line_b else None
+        if isinstance(self._counter, GateCounter):
+            return self._counter.line_b if self._counter.line_b else None
+        # LineCounter has only one line
+        return None
 
     def get_gate_lines(self) -> Tuple[Optional[List[Tuple[int, int]]], Optional[List[Tuple[int, int]]]]:
         """
@@ -169,6 +193,7 @@ class MeasureStage:
         
         Returns:
             Tuple of (line_a, line_b) for compatibility with existing code.
+            For LineCounter, returns (line, None).
         """
         return self.get_line_a(), self.get_line_b()
 
