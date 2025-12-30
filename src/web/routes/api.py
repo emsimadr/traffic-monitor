@@ -16,7 +16,7 @@ from ..services.logs_service import LogsService
 from ..services.health_service import HealthService
 from ..services.camera_service import CameraService
 from ..state import state
-from ..api_models import StatsSummary, LiveStatsResponse, RangeStatsResponse, StatusResponse
+from ..api_models import StatsSummary, LiveStatsResponse, RangeStatsResponse, StatusResponse, CompactStatusResponse
 
 router = APIRouter()
 router_v1 = APIRouter(prefix="/api/v1")
@@ -113,6 +113,128 @@ def status():
         "health": health,
         "timestamp": now,
     }
+
+
+def _compute_warnings(
+    last_frame_age_s: Optional[float],
+    disk_free_pct: Optional[float],
+    cpu_temp_c: Optional[float],
+) -> list[str]:
+    """
+    Compute warning flags for compact status endpoint.
+    
+    Thresholds:
+    - camera_stale: last_frame_age_s > 2
+    - camera_offline: last_frame_age_s > 10
+    - disk_low: disk_free_pct < 10
+    - temp_high: cpu_temp_c > 80
+    """
+    warnings = []
+    
+    if last_frame_age_s is not None:
+        if last_frame_age_s > 10:
+            warnings.append("camera_offline")
+        elif last_frame_age_s > 2:
+            warnings.append("camera_stale")
+    else:
+        # No frame timestamp means camera never started
+        warnings.append("camera_offline")
+    
+    if disk_free_pct is not None and disk_free_pct < 10:
+        warnings.append("disk_low")
+    
+    if cpu_temp_c is not None and cpu_temp_c > 80:
+        warnings.append("temp_high")
+    
+    return warnings
+
+
+def _get_today_start_timestamp() -> float:
+    """Get Unix timestamp for start of today (local time)."""
+    from datetime import datetime
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return today_start.timestamp()
+
+
+@router.get("/api/status", response_model=CompactStatusResponse)
+@router_v1.get("/status", response_model=CompactStatusResponse)
+def compact_status():
+    """
+    Compact status endpoint optimized for frontend polling (every 2s).
+    
+    Returns only essential fields needed for dashboard display:
+    - running: system operational status
+    - last_frame_age_s: seconds since last frame
+    - fps_capture: camera capture rate
+    - counts_today_total: total counts since midnight
+    - counts_by_direction_code: breakdown by A_TO_B/B_TO_A
+    - direction_labels: mapping from config
+    - cpu_temp_c: CPU temperature
+    - disk_free_pct: free disk percentage
+    - warnings: list of active warning codes
+    """
+    now = time.time()
+    
+    # Get system stats
+    sys_stats = state.get_system_stats_copy() if hasattr(state, "get_system_stats_copy") else getattr(state, "system_stats", {}) or {}
+    last_frame_ts = sys_stats.get("last_frame_ts")
+    last_frame_age_s = (now - last_frame_ts) if last_frame_ts else None
+    fps_capture = sys_stats.get("fps")
+    
+    # Get counts from database (new count_events table)
+    counts_today_total = 0
+    counts_by_direction_code: Dict[str, int] = {}
+    
+    if state.database is not None:
+        today_start = _get_today_start_timestamp()
+        try:
+            counts_today_total = state.database.get_count_total(start_time=today_start)
+            counts_by_direction_code = state.database.get_counts_by_direction_code(start_time=today_start)
+        except Exception as e:
+            logging.warning(f"Error getting counts: {e}")
+    
+    # Get direction labels from config
+    cfg = state.get_config_copy() or {}
+    counting_cfg = cfg.get("counting", {}) or {}
+    direction_labels_cfg = counting_cfg.get("direction_labels", {}) or {}
+    
+    # Build direction_labels mapping (A_TO_B -> label, B_TO_A -> label)
+    direction_labels = {
+        "A_TO_B": direction_labels_cfg.get("a_to_b", "northbound"),
+        "B_TO_A": direction_labels_cfg.get("b_to_a", "southbound"),
+    }
+    
+    # Get health metrics
+    disk = HealthService.disk_usage(".")
+    disk_free_pct = disk.get("pct_free")
+    cpu_temp_c = HealthService.read_cpu_temp_c()
+    
+    # Compute warnings
+    warnings = _compute_warnings(last_frame_age_s, disk_free_pct, cpu_temp_c)
+    
+    # Determine running status (no camera_offline warning = running)
+    running = "camera_offline" not in warnings
+    
+    # Inference metrics (placeholder for future Hailo/YOLO integration)
+    fps_infer = None
+    infer_latency_ms_p50 = None
+    infer_latency_ms_p95 = None
+    
+    return CompactStatusResponse(
+        running=running,
+        last_frame_age_s=last_frame_age_s,
+        fps_capture=fps_capture,
+        fps_infer=fps_infer,
+        infer_latency_ms_p50=infer_latency_ms_p50,
+        infer_latency_ms_p95=infer_latency_ms_p95,
+        counts_today_total=counts_today_total,
+        counts_by_direction_code=counts_by_direction_code,
+        direction_labels=direction_labels,
+        cpu_temp_c=cpu_temp_c,
+        disk_free_pct=disk_free_pct,
+        warnings=warnings,
+    )
 
 
 class SaveConfigRequest(BaseModel):

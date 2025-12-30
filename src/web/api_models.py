@@ -42,3 +42,28 @@ class StatusResponse(BaseModel):
     timestamp: float
 
 
+class CompactStatusResponse(BaseModel):
+    """
+    Compact status response optimized for frontend polling (every 2s).
+    Includes only essential fields for dashboard display.
+    """
+    running: bool = Field(..., description="True if system is operational")
+    last_frame_age_s: Optional[float] = Field(None, description="Seconds since last frame")
+    fps_capture: Optional[float] = Field(None, description="Camera capture FPS")
+    fps_infer: Optional[float] = Field(None, description="Inference FPS (if applicable)")
+    infer_latency_ms_p50: Optional[float] = Field(None, description="Inference latency p50")
+    infer_latency_ms_p95: Optional[float] = Field(None, description="Inference latency p95")
+    counts_today_total: int = Field(0, description="Total counts today")
+    counts_by_direction_code: Dict[str, int] = Field(
+        default_factory=dict, 
+        description="Counts by direction code (A_TO_B, B_TO_A)"
+    )
+    direction_labels: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Direction code to label mapping from config"
+    )
+    cpu_temp_c: Optional[float] = Field(None, description="CPU temperature in Celsius")
+    disk_free_pct: Optional[float] = Field(None, description="Disk free percentage")
+    warnings: list[str] = Field(default_factory=list, description="Active warnings")
+
+
