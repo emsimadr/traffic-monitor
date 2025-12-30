@@ -265,8 +265,15 @@ class GateCounter(Counter):
             track_displacement_px=displacement,
         )
         
-        # Mark as counted (internal state only - NOT modifying track)
+        # Mark as counted in counter's internal state
         self.mark_counted(track_id)
+        
+        # Sync counted flag to track object so tracker can handle it properly
+        # This prevents track ID fragmentation from causing double-counts
+        if hasattr(track, 'has_been_counted'):
+            track.has_been_counted = True
+        if hasattr(track, 'direction'):
+            track.direction = sequence
         
         import logging
         logging.info(

@@ -283,11 +283,12 @@ class TestGateCounter:
         # Should have counted
         assert len(all_events) == 1
         
-        # Track should NOT be modified by counter
-        assert track.has_been_counted is False
-        assert track.direction is None
+        # Track SHOULD be modified by counter (to prevent double-counting)
+        # The counter syncs has_been_counted and direction to the track object
+        assert track.has_been_counted is True
+        assert track.direction == "A_TO_B"
         
-        # But counter knows it's counted
+        # Counter also knows it's counted (internal state)
         assert counter.is_counted(1)
 
     def test_min_age_constraint(self):

@@ -216,8 +216,15 @@ class LineCounter(Counter):
             )
             events.append(event)
             
-            # Mark as counted
+            # Mark as counted in counter's internal state
             self.mark_counted(track_id)
+            
+            # Sync counted flag to track object so tracker can handle it properly
+            # This prevents track ID fragmentation from causing double-counts
+            if hasattr(track, 'has_been_counted'):
+                track.has_been_counted = True
+            if hasattr(track, 'direction'):
+                track.direction = direction_code
         
         return events
 
@@ -240,7 +247,7 @@ def create_line_counter_from_config(
         frame_width: Frame width for ratio-to-pixel conversion.
         frame_height: Frame height for ratio-to-pixel conversion.
     """
-    from analytics.counting import compute_counting_line
+    from algorithms.counting.utils import compute_counting_line
     
     # Use line_a as the single line for line mode
     line_cfg = counting_cfg.get("line") or counting_cfg.get("line_a")

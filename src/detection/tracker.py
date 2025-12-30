@@ -142,11 +142,6 @@ class VehicleTracker:
         matched_detections = set()
         
         for vehicle_id, vehicle in self.tracked_vehicles.items():
-            # Skip already-counted vehicles (they're waiting for cleanup)
-            if vehicle.has_been_counted:
-                vehicle.frames_since_seen += 1
-                continue
-            
             best_iou = 0.0
             best_detection_idx = None
             
@@ -161,15 +156,18 @@ class VehicleTracker:
             
             if best_detection_idx is not None:
                 # Update vehicle with new detection
+                # (including counted vehicles, to keep bbox current for matching)
                 detection = detections[best_detection_idx]
                 vehicle.bbox = tuple(detection[:4])
                 vehicle.center = self._calculate_center(vehicle.bbox)
                 vehicle.frames_since_seen = 0
-                vehicle.trajectory.append(vehicle.center)
                 
-                # Limit trajectory length
-                if len(vehicle.trajectory) > 20:
-                    vehicle.trajectory.popleft()
+                # Only update trajectory for uncounted vehicles
+                if not vehicle.has_been_counted:
+                    vehicle.trajectory.append(vehicle.center)
+                    # Limit trajectory length
+                    if len(vehicle.trajectory) > 20:
+                        vehicle.trajectory.popleft()
                 
                 matched_detections.add(best_detection_idx)
             else:
@@ -182,11 +180,11 @@ class VehicleTracker:
             return
         
         # Find detections that weren't matched to existing tracks
+        # IMPORTANT: Also match against counted vehicles to prevent creating
+        # duplicate tracks for the same physical object (fixes double-counting)
         matched_indices = set()
         for vehicle in self.tracked_vehicles.values():
-            if vehicle.has_been_counted:
-                continue
-            
+            # Don't skip counted vehicles - we still need to prevent duplicates
             for idx, detection in enumerate(detections):
                 if idx in matched_indices:
                     continue
