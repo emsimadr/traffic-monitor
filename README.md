@@ -1,223 +1,281 @@
 # Neighborhood Traffic Monitoring System
 
-A hybrid edge-cloud architecture for monitoring and analyzing traffic patterns on residential streets using a Raspberry Pi (or similar device) and Google Cloud Platform for data processing.
+A hybrid edge-cloud architecture for monitoring and analyzing traffic patterns on residential streets using a Raspberry Pi (or similar device) and optional Google Cloud Platform sync for data processing.
 
 ## Problem Statement
 
-Our residential street has become increasingly dangerous due to high traffic volumes and reckless driving, creating an unsafe environment for residents, pedestrians, and especially children. Despite frequent close calls and community concerns, we lack the quantitative data necessary to compel municipal action for traffic calming measures.
+Our residential street has become increasingly dangerous due to high traffic volumes and reckless driving. This project systematically collects and analyzes traffic data to build an evidence-based case for implementing traffic calming measures.
 
-This project systematically collects and analyzes traffic data to build an evidence-based case for implementing traffic calming measures such as speed bumps, enhanced signage, and integrated road design that prioritizes safety for all road users.
+## Architecture Overview
 
-## Project Architecture
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        TRAFFIC MONITOR                            │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐          │
+│  │ Observation │ -> │  Pipeline   │ -> │   Storage   │          │
+│  │   Layer     │    │   Engine    │    │   (SQLite)  │          │
+│  └─────────────┘    └─────────────┘    └─────────────┘          │
+│        │                  │                   │                  │
+│        │                  │                   │                  │
+│  ┌─────┴─────┐     ┌─────┴─────┐      ┌─────┴─────┐             │
+│  │ OpenCV    │     │ Detect    │      │  Cloud    │             │
+│  │ Picamera2 │     │ Track     │      │  Sync     │             │
+│  └───────────┘     │ Measure   │      │ (BigQuery)│             │
+│                    └───────────┘      └───────────┘             │
+│                          │                                       │
+│                    ┌─────┴─────┐                                 │
+│                    │ Counting  │                                 │
+│                    │ Strategies│                                 │
+│                    │ (Gate/    │                                 │
+│                    │  Line)    │                                 │
+│                    └───────────┘                                 │
+│                                                                   │
+├──────────────────────────────────────────────────────────────────┤
+│  Web Interface (React + FastAPI)                                 │
+│  - Dashboard: Live video + counts + alerts                       │
+│  - Configure: Gate lines, camera settings, detection params      │
+│  - Health: System stats, storage, temperature                    │
+└──────────────────────────────────────────────────────────────────┘
+```
 
-The system uses a hybrid edge-cloud architecture:
+### Key Components
 
-### Edge Component (Raspberry Pi / Jetson / PC)
-- **Flexible Camera Support**: Works with USB Webcams, Raspberry Pi Cameras (libcamera), and IP Cameras (RTSP/HTTP).
-- **Intelligent Detection**: Supports both traditional Computer Vision (Background Subtraction) and AI-powered detection (YOLOv8).
-- **Vehicle Tracking**: Tracks vehicles across frames to count unique vehicles and determine direction.
-- **Robust Storage**: Temporarily stores data locally in SQLite with automatic cleanup.
-- **Resilient Cloud Sync**: Syncs data to Google Cloud BigQuery and Cloud Storage with retry logic.
+1. **Observation Layer** (`src/observation/`)
+   - Abstracts frame sources (USB cameras, RTSP, Pi CSI, video files)
+   - Returns `FrameData` objects with timestamps
+   - Handles reconnection and transforms (rotate, flip, swap_rb)
 
-### Cloud Component (Google Cloud Platform)
-- **BigQuery**: Stores the complete dataset for long-term analysis.
-- **Cloud Storage**: Archives video samples of traffic events.
-- **Looker Studio**: Visualizes traffic patterns, peak hours, and speeding trends.
+2. **Pipeline Engine** (`src/pipeline/`)
+   - Clear stages: Preprocess → Detect → Track → Measure → Persist
+   - Tracking produces trajectories only (no counting side effects)
+   - MeasureStage applies selected counting strategy
 
-![System Architecture](docs/images/architecture-diagram.png)
+3. **Counting Strategies** (`src/algorithms/counting/`)
+   - **GateCounter** (default): Two-line gate for bi-directional streets
+   - **LineCounter**: Single-line fallback
+   - All strategies emit canonical `CountEvent` with `A_TO_B`/`B_TO_A` direction codes
+   - Syncs `has_been_counted` to tracks to prevent double-counting from track fragmentation
 
-## Key Features
+4. **Storage** (`src/storage/`)
+   - Single canonical table: `count_events`
+   - Stats derived exclusively from `count_events`
+   - Schema versioning via `schema_meta` table (current: v2)
+   - Unique constraint prevents duplicate counts (defense-in-depth)
 
-*   **Vehicle Counting**: Accurately counts vehicles moving in both directions.
-*   **Direction Detection**: Distinguishes between Northbound and Southbound traffic (customizable).
-*   **Diagonal Street Support**: Configurable counting lines for any road layout.
-*   **RTSP/IP Camera Support**: Connect to wireless security cameras.
-*   **AI Ready**: Modular backend supports upgrading to YOLO models for higher accuracy.
-*   **Privacy First**: Focuses on counting and statistics, not surveillance.
+5. **Web API** (`src/web/`)
+   - JSON APIs for frontend
+   - `/api/status` primary polling endpoint
+   - MJPEG streaming at `/api/camera/live.mjpg`
+
+6. **Frontend** (`frontend/`)
+   - React + TypeScript + Tailwind + shadcn/ui
+   - Dashboard, Configuration, Health pages
 
 ## Project Structure
 
 ```
-traffic_monitor/
+traffic-monitor/
+├── config/                     # Configuration
+│   ├── default.yaml           # Defaults (do not edit)
+│   ├── config.yaml            # Local overrides
+│   └── cloud_config.yaml      # GCP settings
 │
-├── config/                      # Configuration files
-│   ├── default.yaml             # Default settings (do not edit)
-│   ├── config.yaml              # Local overrides (your custom settings)
-│   └── cloud_config.yaml        # Cloud-specific configuration
+├── src/                        # Backend source
+│   ├── main.py                # Entry point
+│   ├── observation/           # Frame sources (OpenCV, Picamera2)
+│   ├── pipeline/              # Processing engine + stages
+│   ├── algorithms/counting/   # Counting strategies (Gate, Line)
+│   ├── detection/             # Detection (BgSub, YOLO)
+│   ├── tracking/              # Object tracking
+│   ├── storage/               # SQLite database
+│   ├── models/                # Data models (FrameData, CountEvent, etc.)
+│   ├── runtime/               # Runtime context + services
+│   ├── web/                   # FastAPI + Jinja2 (legacy)
+│   │   ├── routes/            # API routes
+│   │   └── services/          # Business logic
+│   ├── inference/             # YOLO backends
+│   ├── cloud/                 # GCP sync
+│   └── ops/                   # Logging, health
 │
-├── src/                         # Source code
-│   ├── main.py                  # Main application entry point
-│   ├── camera/                  # Camera abstraction layer
-│   ├── capture/                 # Video capture backends (OpenCV, Picamera2)
-│   ├── detection/               # Detection modules (BgSub, YOLO)
-│   ├── tracking/                # Object tracking logic
-│   ├── analytics/               # Counting and speed estimation
-│   ├── storage/                 # Local database handling
-│   ├── cloud/                   # GCP synchronization
-│   └── ops/                     # Operations (logging, health)
+├── frontend/                   # React frontend
+│   ├── src/
+│   │   ├── pages/             # Dashboard, Configure, Health
+│   │   ├── components/        # UI components
+│   │   └── lib/               # API client, utilities
+│   └── dist/                  # Built frontend (served by FastAPI)
 │
-├── secrets/                     # Credentials (gitignored)
-│   ├── gcp-credentials.json     # GCP service account key
-│   └── camera_secrets.yaml      # IP camera credentials
+├── secrets/                    # Credentials (gitignored)
+│   ├── gcp-credentials.json
+│   └── camera_secrets.yaml
 │
-├── docs/                        # Documentation
-└── tools/                       # Utility scripts
+├── tests/                      # Unit tests
+├── docs/                       # Documentation
+└── tools/                      # Deployment scripts
 ```
 
-## Installation
+## Quick Start
 
-### 1. Prerequisites
-- Python 3.8+
-- OpenCV
-- (Optional) Raspberry Pi with Camera Module 3 or AI HAT+
+### 1. Install Dependencies
 
-### 2. Clone and Install
 ```bash
 git clone https://github.com/your-username/traffic-monitor.git
 cd traffic-monitor
-# Create a virtual environment
-python -m venv .venv
-# Activate it (Windows)
-.venv\Scripts\activate
-# Activate it (Linux/Mac)
-source .venv/bin/activate
 
-# Install dependencies
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# .venv\Scripts\activate   # Windows
+
+# Install Python dependencies
 pip install -r requirements.txt
+
+# Build frontend
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
-### 3. Google Cloud Platform Setup
-1. Create a GCP project.
-2. Enable BigQuery and Cloud Storage APIs.
-3. Create a Service Account with `BigQuery Data Editor` and `Storage Object Admin` roles.
-4. Download the JSON key file to `secrets/gcp-credentials.json`.
+### 2. Configure
 
-### 4. Configuration
-The system uses a layered configuration. `config/default.yaml` contains defaults. You should create/edit `config/config.yaml` to override them.
+Copy and edit the config:
 
-**Example `config/config.yaml`:**
+```bash
+cp config/default.yaml config/config.yaml
+```
+
+**For USB camera:**
 ```yaml
 camera:
-  # Use an IP Camera
-  device_id: "rtsp://192.168.1.100/stream1"
-  secrets_file: "secrets/camera_secrets.yaml"
-  # Or use a USB Webcam
-  # device_id: 0
-  
-detection:
-  # Define a diagonal counting line [[x1, y1], [x2, y2]] (ratios 0.0-1.0)
-  counting_line: [[0.0, 0.0], [1.0, 1.0]]
-  
-  # Switch to YOLO for better accuracy (requires 'ultralytics' package)
-  # backend: "yolo"
-  # yolo:
-  #   model: "yolov8n.pt"
+  backend: "opencv"
+  device_id: 0
+  resolution: [1280, 720]
+  fps: 30
+
+counting:
+  mode: "gate"  # Two-line gate counting (default)
+  line_a: [[0.2, 1.0], [0.0, 0.0]]
+  line_b: [[0.8, 1.0], [1.0, 0.0]]
+  direction_labels:
+    a_to_b: "northbound"
+    b_to_a: "southbound"
 ```
 
-## Usage
-
-**Run with visualization (for testing):**
-```bash
-python src/main.py --config config/config.yaml --display
-```
-
-**Run in background (for deployment):**
-```bash
-python src/main.py --config config/config.yaml
-```
-
-**Record video samples:**
-```bash
-python src/main.py --config config/config.yaml --record
-```
-
-## Raspberry Pi Deployment
-
-### Quick Start (Automated)
-
-For a fresh Raspberry Pi OS (Bookworm) installation:
-
-```bash
-# SSH into your Pi
-ssh traffic@traffic-pi-01.local
-
-# Clone the repo
-git clone https://github.com/emsimadr/traffic-monitor.git
-cd traffic-monitor
-
-# Run the deployment script
-chmod +x tools/deploy_pi.sh
-sudo ./tools/deploy_pi.sh
-```
-
-This script will:
-- Install system dependencies (python3, opencv, picamera2, etc.)
-- Create the `traffic` service user
-- Set up the app in `/opt/traffic-monitor`
-- Create and enable a systemd service
-
-### Manual Setup
-
-If you prefer manual control or already have the repo cloned:
-
-#### 1. Install system dependencies
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y git python3 python3-venv python3-pip python3-opencv python3-picamera2 rpicam-apps
-```
-
-#### 2. Create Python environment
-```bash
-cd ~/traffic-monitor
-python3 -m venv --system-site-packages .venv
-source .venv/bin/activate
-grep -v '^opencv-python' requirements.txt > /tmp/requirements.pi.txt
-pip install -r /tmp/requirements.pi.txt
-```
-
-#### 3. Configure for your camera
-
-**For Picamera2 (CSI ribbon camera):**
+**For Pi Camera:**
 ```yaml
-# config/config.yaml
 camera:
   backend: "picamera2"
   resolution: [1280, 720]
   fps: 30
 ```
 
-**For RTSP/IP camera:**
+**For RTSP camera:**
 ```yaml
-# config/config.yaml
 camera:
   backend: "opencv"
+  device_id: "rtsp://192.168.1.100/stream"
   secrets_file: "secrets/camera_secrets.yaml"
 ```
 
-```yaml
-# secrets/camera_secrets.yaml
-rtsp_url: "rtsp://192.168.1.100/live0"
-username: "admin"
-password: "yourpassword"
+### 3. Run
+
+```bash
+python src/main.py --config config/config.yaml
 ```
 
-#### 4. Create systemd service
+Access the web interface at: `http://localhost:5000`
+
+### Options
+
+- `--display`: Show OpenCV window (for debugging)
+- `--record`: Record video to `output/video/`
+
+## Counting Strategies
+
+### Gate Counting (Default)
+
+Two-line gate counting is the standard for bi-directional streets:
+
+```
+        Line A          Line B
+          │               │
+    ──────┼───────────────┼──────
+          │    STREET     │
+    ──────┼───────────────┼──────
+          │               │
+
+Vehicle crossing A → B = "A_TO_B" (northbound)
+Vehicle crossing B → A = "B_TO_A" (southbound)
+```
+
+Configure in `config.yaml`:
+```yaml
+counting:
+  mode: "gate"
+  line_a: [[0.2, 1.0], [0.0, 0.0]]  # Ratios [0-1]
+  line_b: [[0.8, 1.0], [1.0, 0.0]]
+  max_gap_frames: 30  # Max frames between A/B crossings
+```
+
+### Line Counting (Fallback)
+
+Single-line counting for simple scenarios:
+
+```yaml
+counting:
+  mode: "line"
+  line_a: [[0.5, 1.0], [0.5, 0.0]]  # Vertical center line
+```
+
+## Raspberry Pi Deployment
+
+### Automated Setup
+
 ```bash
+ssh pi@traffic-pi.local
+git clone https://github.com/your-username/traffic-monitor.git
+cd traffic-monitor
+chmod +x tools/deploy_pi.sh
+sudo ./tools/deploy_pi.sh
+```
+
+### Manual Setup
+
+```bash
+# Install system packages
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip \
+  python3-opencv python3-picamera2 rpicam-apps nodejs npm
+
+# Create venv (include system packages for picamera2)
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+
+# Install Python deps (skip opencv-python on Pi)
+grep -v '^opencv-python' requirements.txt > /tmp/req.txt
+pip install -r /tmp/req.txt
+
+# Build frontend
+cd frontend && npm install && npm run build && cd ..
+
+# Create systemd service
 sudo nano /etc/systemd/system/traffic-monitor.service
 ```
 
-Paste:
+Systemd service file:
 ```ini
 [Unit]
-Description=Traffic Monitor Service
+Description=Traffic Monitor
 After=network.target
 
 [Service]
 Type=simple
-User=traffic
-WorkingDirectory=/home/traffic/traffic-monitor
-Environment="PATH=/home/traffic/traffic-monitor/.venv/bin:/usr/bin"
-ExecStart=/home/traffic/traffic-monitor/.venv/bin/python src/main.py --config config/config.yaml
+User=pi
+WorkingDirectory=/home/pi/traffic-monitor
+Environment="PATH=/home/pi/traffic-monitor/.venv/bin:/usr/bin"
+ExecStart=/home/pi/traffic-monitor/.venv/bin/python src/main.py
 Restart=always
 RestartSec=10
 
@@ -225,70 +283,55 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-#### 5. Enable and start
+Enable and start:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable traffic-monitor
 sudo systemctl start traffic-monitor
 ```
 
-#### 6. Check status
-```bash
-sudo systemctl status traffic-monitor
-sudo journalctl -u traffic-monitor -f
-```
+## API Endpoints
 
-### Updating
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/status` | Compact status for dashboard polling |
+| `GET /api/health` | System health info |
+| `GET /api/stats/summary` | Count statistics |
+| `GET /api/stats/live` | Real-time stats |
+| `GET /api/config` | Current configuration |
+| `POST /api/config` | Save config overrides |
+| `GET /api/calibration` | Calibration settings |
+| `POST /api/calibration` | Save calibration |
+| `GET /api/camera/live.mjpg` | MJPEG video stream |
+| `GET /api/camera/snapshot.jpg` | Single frame snapshot |
 
-After the service is set up, use the update script:
+## Cloud Sync (Optional)
 
-```bash
-cd ~/traffic-monitor
-chmod +x tools/update_pi.sh
-./tools/update_pi.sh
-```
+To sync data to Google Cloud BigQuery:
 
-Or manually:
-```bash
-sudo systemctl stop traffic-monitor
-git pull
-source .venv/bin/activate
-pip install -r /tmp/requirements.pi.txt
-sudo systemctl start traffic-monitor
-```
+1. Create a GCP project
+2. Enable BigQuery API
+3. Create a service account with `BigQuery Data Editor` role
+4. Download key to `secrets/gcp-credentials.json`
+5. Configure `config/cloud_config.yaml`
 
-### Accessing the Web UI
-
-Once running, access the dashboard at:
-```
-http://traffic-pi-01.local:5000/
-```
-
----
-
-## Web UI (Headless)
-
-This project includes a lightweight Web UI (FastAPI + Jinja templates) intended for headless deployments:
-
-- **Dashboard**: counts + health summary + camera snapshot
-- **Config**: edit `config/config.yaml` overrides (defaults in `config/default.yaml`)
-- **Calibration (v0)**: live snapshot/preview (ROI/line editor planned)
-- **Logs**: tail of `logs/traffic_monitor.log`
-
-### Run the Web UI
+## Development
 
 ```bash
-python -m uvicorn src.web.app:app --host 0.0.0.0 --port 8000
+# Run tests
+pytest tests/ -v
+
+# Build frontend in dev mode
+cd frontend && npm run dev
+
+# Run backend
+python src/main.py --display
 ```
-
-Then open `http://<pi-ip>:8000/` on your LAN.
-
-### Notes
-
-- The MJPEG endpoint (`/api/camera/stream.mjpg`) opens the camera for the duration of the stream. In a future version, camera access should be coordinated with the detection pipeline.
 
 ## Contributing
-Contributions are welcome! Please open an issue or submit a Pull Request.
+
+Contributions welcome! Please open an issue or PR.
 
 ## License
-MIT License - see [LICENSE](LICENSE) for details.
+
+MIT License - see [LICENSE](LICENSE)

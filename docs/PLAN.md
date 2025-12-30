@@ -6,14 +6,14 @@ This `PLAN.md` is the living roadmap for building a **privacy-respecting, eviden
 
 ## Project Overview
 
-### What we’re building
+### What we're building
 
 - A system that continuously captures a street-facing video stream, detects and tracks traffic participants, and records counts (and later: speed distributions, vulnerable road users, and movement patterns).
 - A hybrid architecture:
   - **Edge**: real-time detection + local buffering/storage so data collection continues without internet.
   - **Cloud (optional)**: long-term storage and analytics (BigQuery) + artifacts (Cloud Storage) to support dashboards and advocacy.
 
-### Scope and non-goals (important)
+### Scope and non-goals
 
 **In scope (near term):**
 
@@ -22,388 +22,341 @@ This `PLAN.md` is the living roadmap for building a **privacy-respecting, eviden
 - Privacy-first summaries suitable for sharing externally.
 - Heatmaps that show where traffic actually flows over time.
 
-**Explicit non-goals (unless you later choose otherwise):**
+**Explicit non-goals:**
 
 - Identifying individuals, license plates, or faces.
-- Real-time enforcement or “catching” specific drivers.
+- Real-time enforcement or "catching" specific drivers.
 - Storing continuous raw video long-term (short validation clips only, by default).
 
-### Why it matters (core motivation)
+### Why it matters
 
 We need **credible quantitative evidence** (counts, patterns, and eventually speeds and conflicts) to support traffic calming advocacy and to withstand scrutiny from municipal stakeholders—without turning the project into surveillance.
 
-### What’s already implemented (current repo status)
+---
 
-Milestone 1 foundation exists and now includes a FastAPI web UI:
+## Current Architecture (Implemented)
 
-- **Capture (current)**: USB camera index or RTSP URL, with retry logic (`src/camera/capture.py` / `src/camera/backends/opencv.py`).
-- **Detection**: background-subtraction-based vehicle detection (`src/detection/vehicle.py`).
-- **Tracking**: IoU-based tracking to maintain vehicle trajectories across frames (`src/detection/tracker.py`); configurable via `tracking` section (max_frames_since_seen, min_trajectory_length, iou_threshold).
-- **Counting**: Gate-based counting using two lines (A and B) to determine direction (`src/analytics/counter.py`); vehicles are counted when crossing both gates in sequence (A→B or B→A).
-- **Storage**: SQLite + hourly/daily aggregates + retention cleanup (`src/storage/database.py`).
-- **Cloud sync (optional)**: periodic background sync to BigQuery + video sample upload to Cloud Storage (`src/cloud/sync.py`).
-- **Web UI (current)**: FastAPI + Jinja templates + React frontend, MJPEG live view with overlayed gate lines, stats summary, config editor, calibration page, and logs (`src/web/` + `frontend/`). Served via Uvicorn in a background thread from `src/main.py`.
+### Layer Summary
+
+| Layer | Module | Responsibility |
+|-------|--------|----------------|
+| **Observation** | `src/observation/` | Frame capture from cameras/files |
+| **Pipeline** | `src/pipeline/` | Main loop: Detect → Track → Measure → Persist |
+| **Detection** | `src/detection/` | BgSub or YOLO-based detection |
+| **Tracking** | `src/detection/tracker.py` | IoU-based multi-object tracking |
+| **Counting** | `src/algorithms/counting/` | Pluggable strategies (Gate, Line) |
+| **Storage** | `src/storage/` | SQLite with count_events table |
+| **Web** | `src/web/` | FastAPI + React frontend |
+| **Cloud** | `src/cloud/` | Optional BigQuery sync |
+
+### Observation Layer
+
+The observation layer (`src/observation/`) abstracts frame sources:
+
+- **OpenCVSource**: USB cameras, RTSP streams, video files
+- **Picamera2Source**: Raspberry Pi CSI cameras
+
+Each source implements `open() → read() → close()` and returns `FrameData` with:
+- `frame`: numpy array (BGR)
+- `timestamp`: capture time
+- `frame_index`: sequence number
+- `width`, `height`: dimensions
+
+Transforms (rotate, flip, swap_rb) are applied at the observation layer.
+
+### Pipeline Engine
+
+The pipeline engine (`src/pipeline/engine.py`) runs the main loop:
+
+1. **Read**: Get frame from ObservationSource
+2. **Detect**: Run detector (BgSub or YOLO)
+3. **Track**: Update tracker with detections
+4. **Measure**: Apply counting strategy to tracks
+5. **Persist**: Save count events to database
+6. **Update**: Push annotated frame to web state
+
+### Counting Strategies
+
+Counting strategies (`src/algorithms/counting/`) are pluggable:
+
+**GateCounter (Default)**: Two-line gate for bi-directional streets
+- Counts when track crosses Line A then Line B (A_TO_B)
+- Or crosses Line B then Line A (B_TO_A)
+- Configurable max_gap_frames, min_age_frames, min_displacement_px
+
+**LineCounter (Fallback)**: Single-line counting
+- Counts any crossing of the line
+- Maps positive/negative crossings to A_TO_B/B_TO_A
+
+All strategies emit `CountEvent` with canonical direction codes.
+
+**Double-Counting Prevention**:
+When a count event is emitted, the counter syncs `has_been_counted=True` to the track object. The tracker then:
+1. Continues matching detections against counted vehicles (prevents duplicate tracks)
+2. Updates bounding boxes but stops accumulating trajectory
+3. Eventually removes counted vehicles after `max_frames_since_seen`
+
+This prevents track ID fragmentation from causing duplicate counts when detection noise
+causes a brief tracking mismatch. A unique database constraint provides defense-in-depth.
+
+### Storage Schema
+
+Single canonical table `count_events`:
+
+```sql
+CREATE TABLE count_events (
+    id INTEGER PRIMARY KEY,
+    ts INTEGER NOT NULL,           -- epoch milliseconds
+    frame_idx INTEGER,
+    track_id INTEGER NOT NULL,
+    direction_code TEXT NOT NULL,  -- A_TO_B or B_TO_A
+    direction_label TEXT,
+    gate_sequence TEXT,
+    line_a_cross_frame INTEGER,
+    line_b_cross_frame INTEGER,
+    track_age_frames INTEGER,
+    track_displacement_px REAL,
+    cloud_synced INTEGER DEFAULT 0
+);
+
+-- Defense-in-depth: prevent duplicate counts for same track within same second
+CREATE UNIQUE INDEX idx_count_events_track_second ON count_events(track_id, ts / 1000);
+```
+
+Schema versioning via `schema_meta` table. Current version: 2.
+
+### Web Interface
+
+**Frontend** (React + TypeScript + Tailwind):
+- Dashboard: Live video + counts + alerts
+- Configure: Counting mode, gate lines, camera settings
+- Health: System stats
+
+**API Endpoints**:
+- `GET /api/status`: Compact status for polling
+- `GET /api/health`: System health
+- `GET /api/config`, `POST /api/config`: Configuration
+- `GET /api/calibration`, `POST /api/calibration`: Line calibration
+- `GET /api/camera/live.mjpg`: MJPEG stream
+- `GET /api/stats/*`: Count statistics
 
 ---
 
-## Hardware and Deployment Target (AI-first)
+## Hardware Target
 
-This section reflects the **target deployment** you want to move to. Where something is not yet implemented in code, it is explicitly marked as “planned.”
+### Primary deployment
 
-### Primary target hardware
+- Raspberry Pi 5 (8GB+)
+- Optional: AI HAT+ (Hailo-8) for YOLO acceleration
+- Raspberry Pi Camera Module 3 or USB webcam
+- Active cooling + stable power supply
+- High-endurance microSD
 
-- Raspberry Pi 5 (16GB)
-- Raspberry Pi AI HAT+ (Hailo-8 class accelerator)
-- Raspberry Pi Camera Module 3 Wide (CSI)
-- Active cooling + stable 5V power supply (headroom for sustained load)
-- Storage: high-endurance microSD; optional USB SSD later for clip/artifact retention
+### Camera options
 
-### Camera strategy
-
-- **Default (planned)**: CSI camera via `Picamera2` / libcamera pipeline (lower overhead, better stability on Pi).
-- **Fallback (current)**: USB webcam or RTSP IP camera via OpenCV (`src/camera/capture.py`).
-
-### Detection strategy
-
-- **Default (planned)**: YOLO-family detector on the AI HAT+ backend.
-- **Fallback (current)**: classical CV background subtraction (`src/detection/vehicle.py`) for baseline comparison and troubleshooting.
+| Backend | Use Case |
+|---------|----------|
+| `picamera2` | Pi CSI camera (recommended for Pi) |
+| `opencv` | USB webcam, RTSP stream, video file |
 
 ---
 
-## How the System Works (today)
+## Configuration
 
-This section is intended to be “handoff-friendly” for someone new.
+### Config layering
 
-### Runtime flow
+1. `config/default.yaml` - Base defaults (do not edit)
+2. `config/config.yaml` - Local overrides
+3. `config/cloud_config.yaml` - GCP settings (optional)
 
-- `src/main.py` loads `config/config.yaml` (and `config/cloud_config.yaml` if present), configures logging, then runs an infinite frame loop.
-- Each frame:
-  - is read from `create_camera` (USB/RTSP; retry/backoff),
-  - is passed to `VehicleDetector.detect()` (background subtraction + morphological cleanup + contour filtering + heuristics; YOLO when enabled),
-  - produces bounding boxes which are fed to `VehicleTracker.update()` for IoU-based tracking, then to `GateCounter.process()` for gate-based counting,
-  - writes counted crossings into SQLite (`vehicle_detections`) and periodically updates aggregates (`hourly_counts`, `daily_counts`).
-- If cloud is enabled, a background thread periodically syncs unsynced rows to BigQuery and can upload occasional video samples to Cloud Storage.
-- A FastAPI web server (Uvicorn) runs in a background thread, serving:
-  - Live MJPEG with overlayed gate lines (`/api/camera/live.mjpg` + canvas overlay in dashboard)
-  - Stats endpoints (`/api/stats/*`) and a summary dashboard
-  - Config editor and calibration routes (`/config`, `/calibration`, `/api/config`, `/api/calibration`)
-  - Logs viewer (`/logs`, `/api/logs/tail`)
+### Key settings
 
-### Detection heuristics already in play (so we don’t forget them)
+```yaml
+camera:
+  backend: "opencv"  # or "picamera2"
+  device_id: 0       # or RTSP URL
+  resolution: [1280, 720]
+  fps: 30
 
-- Road-area filter: detection centers must be between ~20% and ~95% of frame height.
-- Stationary-object filter: removes boxes that don’t move more than a small threshold between frames.
-- Box merging: merges nearby/overlapping detections to reduce fragmentation.
+counting:
+  mode: "gate"       # "gate" (default) or "line"
+  line_a: [[0.2, 1.0], [0.0, 0.0]]
+  line_b: [[0.8, 1.0], [1.0, 0.0]]
+  direction_labels:
+    a_to_b: "northbound"
+    b_to_a: "southbound"
+  max_gap_frames: 30
+  min_age_frames: 3
+  min_displacement_px: 15
 
----
+detection:
+  backend: "bgsub"   # or "yolo"
+  min_contour_area: 1000
 
-## How the System Works (target runtime flow — planned)
-
-This is the intended “default path” once the Pi 5 + AI HAT+ stack is wired in, while keeping classical CV as a fallback.
-
-### Planned runtime flow
-
-- `src/main.py` loads `config/config.yaml` (and `config/cloud_config.yaml` if present), configures logging, then runs an infinite loop.
-- Each frame (or every Nth frame if frame-skipping is enabled):
-  1. **Capture**: read frame from CSI camera (preferred) or RTSP/USB fallback, with retry/backoff.
-  2. **Preprocess**: apply ROI cropping and optional resize.
-  3. **Detect**: run a YOLO-family detector using the active backend:
-     - Primary backend (planned): AI HAT+ (Hailo runtime)
-     - Dev/fallback backend (planned): CPU (baseline / portability)
-  4. **Track**: detection-driven tracker (planned upgrade):
-     - ByteTrack-style association (high/low confidence matching)
-     - Track lifecycle (tentative → confirmed → lost → removed)
-  5. **Analytics**:
-     - Counting: gate crossings with direction (+ class once available)
-     - Speed (planned): calibrated ground-plane displacement over time
-     - Heatmap (planned): time-bucketed occupancy grids (image-plane quick mode; bird’s-eye preferred)
-  6. **Persist**:
-     - Store privacy-minimized events + aggregates to SQLite
-     - Optionally retain short validation clips and calibration artifacts with retention rules
-  7. **Cloud sync (optional)**:
-     - Periodic sync to BigQuery
-     - Optional upload of validation artifacts to Cloud Storage
+storage:
+  local_database_path: "data/traffic.db"
+  retention_days: 30
+```
 
 ---
 
-## Problems to Solve
+## Validation
 
-### Data quality & credibility
+### Baseline validation procedure
 
-- **Counting accuracy**: avoid double counts, missed detections, and shadow/lighting artifacts.
-- **Direction correctness**: ensure “northbound/southbound” mapping matches real-world direction.
-- **Calibration & speed**: define an approach for speed measurement that is defensible and repeatable.
+1. **Sampling windows**: 3 × 10-minute windows across lighting conditions
+2. **Ground truth**: Human count from saved clip or live observation
+3. **Compare**: False positives, false negatives, direction accuracy
+4. **Targets**:
+   - Daylight counting accuracy: ≥ 85%
+   - Direction accuracy: ≥ 90%
 
-### Reliability & operations
+### Continuous checks
 
-- **24/7 stability**: handle camera dropouts, reboots, network interruptions, and storage limits.
-- **Safe upgrades**: configuration changes should not break long-running deployments.
-- **Observability**: logs, health indicators, and lightweight alerting for failures.
-
-### Privacy & community trust
-
-- **Minimize sensitive data**: avoid collecting identifiable imagery by default.
-- **Retention policy**: only keep raw video when necessary (e.g., short samples for validation), and expire it.
-- **Transparency**: clear communication of what is collected and why.
-
-### Advocacy outputs
-
-- **Stakeholder-ready summaries**: charts and narratives that clearly show the problem (volumes, peaks, speeding frequency, etc.).
-- **Before/after comparisons**: ability to compare conditions around interventions (signage, speed bumps, etc.).
- - **Heatmap credibility**: produce visuals that are compelling but also defensible (image-plane vs bird’s-eye).
+- Re-validate after camera repositioning
+- Re-validate after parameter changes
+- Re-validate seasonally (lighting changes)
 
 ---
 
-## Assumptions & Constraints
+## Milestones
 
-- **Fixed camera**: the counting gate and ROI assume a stable mount; even small shifts can change counts.
-- **Environment variability**: sun/shadows/rain/night impact all methods; AI detectors are typically more robust than background subtraction but still need validation.
-- **Edge compute**: Raspberry Pi class hardware may require lower FPS, lower resolution, and ROI cropping for stability.
-- **Time accuracy**: timestamps are system time; if the device clock drifts, day/hour aggregations drift too (consider NTP).
-- **Privacy posture**: default should be “store minimal data needed for evidence,” not “store everything just in case.”
+### ✅ Milestone 0 — Deployment Readiness
 
----
+- [x] Runs headless without intervention
+- [x] Auto-recovers from camera failures
+- [x] Documented setup steps
+- [x] Systemd service for Raspberry Pi
 
-## Choices to Be Made (Decisions)
+### ✅ Milestone 1 — Core Counting
 
-These are the key decisions that affect architecture, cost, and credibility. Each should be decided and recorded before expanding scope.
+- [x] Background subtraction detection
+- [x] IoU-based tracking
+- [x] Gate counting (two-line, bi-directional)
+- [x] SQLite storage with count_events
+- [x] Web interface (FastAPI + React)
+- [ ] Validation procedure documented
 
-### Camera and placement
+### 🔄 Milestone 2 — AI Detection
 
-- **Camera type**:
-  - Option A (planned default): CSI camera (Picamera2/libcamera)
-  - Option B: RTSP IP camera (long cable-free placements; supported today)
-  - Option C: USB webcam (simple, local; supported today)
-- **Mounting/angle**:
-  - Choose: view covering lanes + a clear counting gate region with minimal occlusion.
-- **Night strategy**:
-  - Choose: accept reduced accuracy at night vs add IR illumination vs use higher-sensitivity camera.
+- [ ] YOLO backend on CPU
+- [ ] AI HAT+ (Hailo) backend
+- [ ] Class-based counting (car/truck/motorcycle)
+- [ ] Improved tracking (ByteTrack-style)
 
-### Counting gate semantics
+### ⏳ Milestone 3 — Speed Measurement
 
-- **Gate geometry**:
-  - The system uses two gate lines (A and B) to form a counting zone
-  - Lines can be horizontal, diagonal, or any orientation
-  - Vehicles are counted when they cross both gates in sequence (A→B or B→A)
-- **Direction mapping**:
-  - A→B transition maps to one direction label (e.g., "northbound")
-  - B→A transition maps to the opposite direction label (e.g., "southbound")
-  - Labels are configurable via `counting.direction_labels` in config
+- [ ] Camera calibration procedure
+- [ ] Ground-plane speed estimation
+- [ ] Speed distribution statistics
+- [ ] Validation against reference
 
-### Detection approach (now vs later)
+### ⏳ Milestone 4 — Pedestrian/Bicycle Detection
 
-- **Now (baseline)**: background subtraction + contour filtering (already implemented).
-- **Planned default**: YOLO-family detection (AI HAT+; CPU fallback for development).
-- **Later options**:
-  - Option A: classical CV improvements (morphology, perspective ROI, adaptive thresholds)
-  - Option B: upgraded tracking (ByteTrack) and calibration-driven analytics
+- [ ] Multi-class detection
+- [ ] Modal split statistics
+- [ ] Privacy policy documentation
 
-### Speed measurement methodology
+### ⏳ Milestone 5 — Heatmaps
 
-- **Option A (defensible, moderate complexity)**: calibrated ground-plane + track displacement over time.
-- **Option B (simple, less accurate)**: zone-to-zone timing between two reference lines.
-- **Choice needed**: which method meets “city-scrutiny” requirements with acceptable effort.
+- [ ] Trajectory aggregation
+- [ ] Time-bucketed occupancy grids
+- [ ] Bird's-eye view transformation
 
-### Cloud posture (cost & governance)
+### ⏳ Milestone 6 — Reliability & Monitoring
 
-- **Cloud mode**:
-  - Option A: local-only (no internet required; simplest privacy)
-  - Option B: sync aggregates + detections to BigQuery (supported today)
-  - Option C: store raw video in cloud (not recommended by default)
-- **Cost controls**:
-  - Choose: retention windows, sampling rate for video, BigQuery partitioning strategy, alerting thresholds.
+- [ ] Alerting for camera offline
+- [ ] Disk usage monitoring
+- [ ] Uptime tracking
+- [ ] Cost controls for cloud
 
-### Data model boundaries
+### ⏳ Milestone 7 — Advocacy Packaging
 
-- **What is a “detection event”?** (currently: each counted crossing with timestamp + direction)
-- **What should be aggregated?** (hourly/daily counts are implemented; decide weekly/monthly + peak hour summaries)
-- **What “evidence artifacts” do we keep?** (e.g., calibration images, short validation clips)
+- [ ] Chart generation
+- [ ] One-page summary template
+- [ ] Before/after comparison tools
+- [ ] CSV/PDF exports
 
 ---
 
-## Data Contracts (Schemas & Meaning)
-
-This is the contract between edge capture/detection and downstream analytics. Keep it stable; version it when it changes.
-
-### SQLite tables (implemented)
-
-- **`vehicle_detections`**
-  - **Meaning**: one row per counted crossing of the counting gate (not one row per frame detection).
-  - **Key fields**:
-    - `timestamp` (REAL): unix epoch seconds
-    - `date_time` (TEXT): human-readable timestamp
-    - `direction` (TEXT): gate crossing direction code (e.g., `"A_TO_B"` or `"B_TO_A"`)
-    - `direction_label` (TEXT): human-readable label (e.g., `"northbound"` or `"southbound"`)
-    - `cloud_synced` (INTEGER): 0/1
-
-- **`hourly_counts`**
-  - **Meaning**: derived hourly totals computed from `vehicle_detections`.
-  - **Key fields**: `hour_beginning`, `vehicle_count`, `cloud_synced`
-
-- **`daily_counts`**
-  - **Meaning**: derived daily totals computed from `vehicle_detections`.
-  - **Key fields**: `date`, `vehicle_count`, `cloud_synced`
-
-### BigQuery tables (implemented when cloud enabled)
-
-BigQuery tables mirror the SQLite tables above (via `src/cloud/sync.py`), with the same semantic meaning.
-
----
-
-## Recommended Data Model Additions (planned; privacy-preserving)
-
-These additions enable class counts, speed distributions, and heatmaps without storing per-frame imagery.
-
-- **`track_summaries` (planned)**:
-  - One row per completed track (not per frame)
-  - Suggested fields: `start_ts`, `end_ts`, `class`, `direction`, `min_conf`, `track_length_frames`, `mean_speed`, `p95_speed`, `speed_confidence`
-
-- **`speed_aggregates` (planned)**:
-  - Time-bucketed distributions by class/direction
-  - Suggested fields: `bucket_start`, `class`, `direction`, `n`, `median`, `p85`, `p95`, `pct_over_limit`
-
-- **`heatmap_tiles` (planned)**:
-  - Time-bucketed compressed grids + metadata
-  - Suggested fields: `bucket_start`, `class`, `mode` (`image_plane|birdseye`), `grid_blob`, `grid_metadata_json`
-
----
-
-## Validation & QA (How we know the numbers are trustworthy)
-
-If this project is used for advocacy, validation is not optional.
-
-### Baseline validation procedure (recommended)
-
-- **Pick sampling windows**: e.g., 3 × 10-minute windows across different lighting conditions.
-- **Ground truth**: human count crossings from a short saved clip or live observation.
-- **Compare**:
-  - False positives (system counted, human did not)
-  - False negatives (human counted, system did not)
-  - Direction accuracy
-- **Acceptable targets (initial)**:
-  - Daylight vehicle counting accuracy: target ≥ 85% (tune thresholds/ROI until achieved)
-  - Direction accuracy: target ≥ 90% in validated windows
-
-### Continuous drift checks
-
-- Re-run a short validation sample after any camera repositioning, seasonal lighting change, or parameter tuning.
-
----
-
-## Milestones (AI-first reordered, with Done Criteria)
-
-Milestones are ordered to maximize advocacy value early while keeping scope controlled.
-
-### Milestone 0 — Deployment readiness
-
-**Goal**: make the system safe to run unattended.
-
-**Done criteria**:
-- Runs headless for 72 hours without manual intervention.
-- Auto-recovers from camera read failures and network outages.
-- Documented setup steps (camera, config, secrets, startup).
-
-### Milestone 1 — AI-based detection + robust tracking + core counting
-
-**Goal**: counting by class and direction is credible and stable.
-
-**Done criteria**:
-- YOLO backend active (CPU baseline in dev; AI HAT+ on device).
-- Tracking prevents double counts (upgrade path: ByteTrack-style association).
-- Counts recorded in SQLite; aggregates maintained.
-- Cloud sync works when enabled; local-only mode works when disabled.
-- Validation procedure exists and targets are met.
-
-### Milestone 2 — Speed measurement (calibrated)
-
-**Goal**: produce speed distributions and speeding rates.
-
-**Done criteria**:
-- Camera calibration documented and repeatable.
-- Speed estimates validated against a reference method (e.g., radar sign / pacing / known-distance timing).
-- Speed histogram + percentile summaries available (local export and/or BigQuery).
-
-### Milestone 3 — Pedestrian detection (privacy-first)
-
-**Goal**: quantify vulnerable road user exposure without identification.
-
-**Done criteria**:
-- Pedestrian counts and time-of-day patterns captured with acceptable accuracy in daylight.
-- Privacy policy documented (no identity, no face recognition, minimal retention of raw imagery).
-
-### Milestone 4 — Bicycle detection
-
-**Goal**: quantify cycling volumes and patterns (where feasible).
-
-**Done criteria**:
-- Bicycle counts available and distinguished from pedestrians/vehicles with acceptable error rate.
-- Dashboards can show modal split (vehicle vs pedestrian vs bicycle).
-
-### Milestone 5 — Paths/heatmaps (optional, evidence enhancer)
-
-**Goal**: time-bucketed movement heatmaps; bird’s-eye preferred once calibration exists.
-
-**Done criteria**:
-- Track trajectories can be aggregated into coarse heatmaps without storing identifiable imagery.
-- Heatmaps are stable enough to show patterns across days/weeks.
-
-### Milestone 6 — Reliability, monitoring, and cost controls
-
-**Goal**: make long-term operation cheap and boring.
-
-**Done criteria**:
-- >95% uptime over 30 days.
-- Clear alerting for camera offline / sync failure / disk usage.
-- Retention policies enforced for local and cloud data.
-
-### Milestone 7 — Advocacy packaging
-
-**Goal**: turn data into stakeholder-ready materials.
-
-**Done criteria**:
-- A standard set of charts and a “one-page summary” can be generated for a chosen time window.
-- Before/after comparison process defined and repeatable.
-- Exports suitable for sharing (CSV + PDF/slide-ready images).
-
----
-
-## Operations Runbook (Practical “how to run this”)
-
-### Configuration files
-
-- `config/config.yaml`: camera source, resolution/FPS, detection thresholds, counting gate (line_a, line_b, direction_labels), retention, logging.
-- `config/cloud_config.yaml`: GCP project/bucket/dataset/table names and sync interval/retry settings.
-- `secrets/`:
-  - `camera_secrets.yaml` (if using RTSP credentials injection)
-  - `gcp-credentials.json` (service account key; keep out of git)
+## Operations
 
 ### Common commands
 
-- **Run headless**: `python src/main.py --config config/config.yaml`
-- **Run with display** (debug): `python src/main.py --config config/config.yaml --display`
-- **Record samples** (validation): `python src/main.py --config config/config.yaml --record`
-- **Test camera**: `python tools/test_camera.py --device 0`
-- **Test cloud**: `python tools/test_cloud_connection.py --config config/cloud_config.yaml`
+```bash
+# Run headless
+python src/main.py --config config/config.yaml
 
-### What to do when something goes wrong
+# Run with display (debug)
+python src/main.py --config config/config.yaml --display
 
-- **No frames / intermittent frames**: verify RTSP URL, credentials injection, try switching RTSP transport TCP/UDP, check network stability.
-- **Counts suddenly change**: likely camera moved; re-check gate line placement and rerun validation sampling.
-- **Cloud sync errors**: verify credentials, bucket/dataset existence, service account roles, and review `logs/traffic_monitor.log`.
+# Record video
+python src/main.py --config config/config.yaml --record
+
+# Run tests
+pytest tests/ -v
+```
+
+### Systemd service
+
+```bash
+sudo systemctl start traffic-monitor
+sudo systemctl stop traffic-monitor
+sudo systemctl status traffic-monitor
+sudo journalctl -u traffic-monitor -f
+```
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| No frames | Check camera connection, RTSP URL, credentials |
+| Counts wrong | Re-check gate line placement, run validation |
+| Cloud sync fails | Check GCP credentials, roles, bucket existence |
+| High CPU | Reduce resolution/FPS, enable ROI cropping |
 
 ---
 
-## Timeline (rough)
+## Data Contracts
 
-This can be re-estimated once Milestone 0 “deployment readiness” is validated in the real environment.
+### CountEvent
 
-- Milestone 0: 1–2 weeks
-- Milestone 1: 0–1 week (mostly complete; focus on validation + docs)
-- Milestone 2: 2–4 weeks
-- Milestone 3–4: 3–6 weeks (depending on method)
-- Milestone 5: 2–5 weeks (optional)
-- Milestone 6: ongoing hardening during all milestones
-- Milestone 7: 1–3 weeks
+```python
+@dataclass
+class CountEvent:
+    track_id: int
+    direction: str       # "A_TO_B" or "B_TO_A"
+    direction_label: str # From config
+    timestamp: float     # Unix time
+    counting_mode: str   # "gate" or "line"
+    gate_sequence: Optional[str]
+    line_a_cross_frame: Optional[int]
+    line_b_cross_frame: Optional[int]
+    track_age_frames: int
+    track_displacement_px: float
+```
+
+### API Response (CompactStatus)
+
+```json
+{
+  "running": true,
+  "last_frame_age_s": 0.5,
+  "fps_capture": 30.0,
+  "counts_today_total": 150,
+  "counts_by_direction_code": {
+    "A_TO_B": 80,
+    "B_TO_A": 70
+  },
+  "direction_labels": {
+    "A_TO_B": "northbound",
+    "B_TO_A": "southbound"
+  },
+  "cpu_temp_c": 45.0,
+  "disk_free_pct": 75.0,
+  "warnings": []
+}
+```
 
 ---
 
@@ -411,27 +364,27 @@ This can be re-estimated once Milestone 0 “deployment readiness” is validate
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Camera obstruction / angle drift | High | Stable mount; periodic framing checks; calibration checklist |
-| Lighting/night degradation | Medium–High | ROI tuning; optional IR; accept “daylight-only” metrics initially |
-| Network outages | Medium | Local buffering (already); retry/backoff (already) |
-| Compute limits on Raspberry Pi | Medium | Lower FPS/resolution; ROI cropping; consider DNN only if needed |
-| Privacy concerns | High | Default to aggregates; short validation clips only; retention limits; transparency |
-| GCP costs | Medium | Store aggregates; partition tables; limit video uploads; alerts on spend |
+| Camera drift | High | Stable mount, periodic framing checks |
+| Night degradation | Medium | ROI tuning, IR illumination, accept daylight-only |
+| Network outages | Medium | Local buffering, retry/backoff |
+| Compute limits | Medium | Lower FPS/resolution, ROI cropping |
+| Privacy concerns | High | Aggregates only, minimal retention, transparency |
+| GCP costs | Medium | Partition tables, limit uploads, spend alerts |
 
 ---
 
-## Success Metrics (Definition of “this worked”)
+## Success Metrics
 
-- **Operational**: >95% uptime over 30 days; data collected through outages/reboots.
-- **Data quality**: repeatable validation method; documented expected error bounds.
-- **Advocacy value**: clear peak-hour patterns; (later) speeding distribution + shareable visuals.
-- **Privacy**: no identity tracking; minimal video retention; documented policy and configuration defaults.
+- **Operational**: >95% uptime over 30 days
+- **Data quality**: Repeatable validation, documented error bounds
+- **Advocacy value**: Clear peak-hour patterns, shareable visuals
+- **Privacy**: No identity tracking, minimal video retention
 
 ---
 
-## Open Questions (Capture decisions here as you learn)
+## Open Questions
 
-- **Direction semantics**: does the current “northbound/southbound” mapping match the real street directions for your camera view?
-- **Night handling**: do we accept “daylight-only” accuracy for advocacy, or invest in IR / a better sensor / a DNN detector?
-- **Speed method**: zone-to-zone timing vs ground-plane calibration—what level of accuracy is needed to convince your city?
-- **Data retention**: what’s the minimum retention that still supports credible analysis and audits?
+- Night handling: daylight-only accuracy acceptable, or invest in IR/better sensor?
+- Speed method: zone-to-zone timing vs ground-plane calibration?
+- Data retention: minimum retention for credible analysis?
+- Multi-camera: support for multiple observation sources?
