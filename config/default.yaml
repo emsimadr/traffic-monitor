@@ -45,25 +45,22 @@ detection:
 
 # Counting strategy
 counting:
-  # mode: "line" (single-line crossing) or "gate" (two-line gate sequence)
-  # - line: counts when track crosses a single line (faster, simpler)
+  # mode: "gate" (two-line gate, default) or "line" (single-line fallback)
+  # Gate counting is the standard for bi-directional streets.
   # - gate: counts when track crosses line_a then line_b (A_TO_B) or vice versa (B_TO_A)
-  mode: "line"  # Default "line" for backward compatibility
+  # - line: fallback for cases where a gate is not feasible
+  mode: "gate"
   
   # Line definitions (as ratios [0-1] of frame dimensions)
-  # For "line" mode: only line_a is used
-  # For "gate" mode: both line_a and line_b are required
+  # Both lines are used for gate mode; only line_a for line mode
   line_a: [[0.2, 1.0], [0.0, 0.0]]   # Line A (ratios)
   line_b: [[0.8, 1.0], [1.0, 0.0]]   # Line B (ratios)
   
   # Direction labels (how directions appear in logs/UI)
+  # Both modes use A_TO_B/B_TO_A direction codes for DB/API consistency
   direction_labels:
-    # For "line" mode:
-    positive: "inbound"   # Crossing from negative to positive side
-    negative: "outbound"  # Crossing from positive to negative side
-    # For "gate" mode:
-    a_to_b: "northbound"  # Crossed A then B
-    b_to_a: "southbound"  # Crossed B then A
+    a_to_b: "northbound"  # Crossed A then B (or positive side in line mode)
+    b_to_a: "southbound"  # Crossed B then A (or negative side in line mode)
   
   # Counting constraints (apply to both modes)
   min_age_frames: 3           # Min track age before counting

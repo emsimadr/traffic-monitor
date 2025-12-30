@@ -36,14 +36,14 @@ export default function Configure() {
   const overrides = cfgQuery.data ?? {};
 
   // Parse counting config from calibration data
+  // Gate counting is the default for bi-directional streets
   const countingConfig = useMemo(() => {
     const counting = calQuery.data?.counting || {};
-    const mode = counting.mode || "line";
+    const mode = counting.mode || "gate";  // Gate is the default
     const la = counting.line_a;
     const lb = counting.line_b;
+    // All modes use a_to_b/b_to_a direction codes for DB/API consistency
     const labels = counting.direction_labels || {
-      positive: "inbound",
-      negative: "outbound",
       a_to_b: "northbound",
       b_to_a: "southbound",
     };
@@ -99,9 +99,8 @@ type CountingConfigState = {
   mode: string;
   lineA: Line;
   lineB: Line;
+  // All modes use a_to_b/b_to_a direction codes for DB/API consistency
   directionLabels: {
-    positive?: string;
-    negative?: string;
     a_to_b?: string;
     b_to_a?: string;
   };
@@ -157,16 +156,13 @@ function CountingTab({
 
   const handleLineSave = (
     line: Line,
-    labels: { positive: string; negative: string }
+    labels: { a_to_b: string; b_to_a: string }
   ) => {
     onSave({
       counting: {
         mode: "line",
         line_a: toArray(line), // Store single line as line_a
-        direction_labels: {
-          ...config.directionLabels,
-          ...labels,
-        },
+        direction_labels: labels,
       },
     });
   };
@@ -218,8 +214,8 @@ function CountingTab({
         <CountingLineEditor
           line={config.lineA}
           directionLabels={{
-            positive: config.directionLabels.positive || "inbound",
-            negative: config.directionLabels.negative || "outbound",
+            a_to_b: config.directionLabels.a_to_b || "northbound",
+            b_to_a: config.directionLabels.b_to_a || "southbound",
           }}
           onChange={handleLineSave}
         />

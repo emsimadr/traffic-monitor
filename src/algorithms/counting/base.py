@@ -1,7 +1,10 @@
 """
 Counter interface for counting algorithms.
 
-Counters process tracks and produce CountEvents without modifying track state.
+All counting strategies (gate, line, etc.) implement this interface.
+They process tracks and produce CountEvents with standardized direction codes
+(A_TO_B, B_TO_A) regardless of the underlying algorithm.
+
 This separation allows tracking and counting to evolve independently.
 """
 
@@ -9,9 +12,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 from models.count_event import CountEvent
+
+
+# Standard direction codes used in DB and API responses
+DIRECTION_A_TO_B = "A_TO_B"
+DIRECTION_B_TO_A = "B_TO_A"
 
 
 @dataclass
@@ -19,8 +27,11 @@ class CounterConfig:
     """
     Base configuration for counting algorithms.
     
+    All counters use the same direction code format (A_TO_B, B_TO_A)
+    for database and API consistency.
+    
     Attributes:
-        direction_labels: Mapping of direction codes to human-readable labels.
+        direction_labels: Mapping of direction codes (a_to_b, b_to_a) to display labels.
         min_trajectory_length: Minimum trajectory points needed for counting.
     """
     direction_labels: Dict[str, str] = field(default_factory=lambda: {
@@ -38,10 +49,14 @@ class Counter(ABC):
     Counters maintain their own internal state to track which objects
     have been counted, but they do NOT modify the track objects themselves.
     
+    All counters MUST produce CountEvents with direction codes A_TO_B or B_TO_A
+    for database and API consistency.
+    
     This design allows:
     - Tracking layer to remain pure (tracks only)
     - Multiple counters to run on the same tracks
     - Easy testing and swapping of counting strategies
+    - Consistent direction codes regardless of strategy
     """
 
     def __init__(self, config: CounterConfig):
@@ -79,6 +94,8 @@ class Counter(ABC):
         - Update internal counter state
         - Return CountEvent objects for newly counted tracks
         
+        CountEvents MUST have direction set to DIRECTION_A_TO_B or DIRECTION_B_TO_A.
+        
         Args:
             tracks: List of track objects with trajectory information.
             frame_idx: Current frame index for timing information.
@@ -97,4 +114,3 @@ class Counter(ABC):
             List of line segments as ((x1,y1), (x2,y2)) tuples.
         """
         pass
-

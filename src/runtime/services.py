@@ -7,44 +7,61 @@ import cv2
 import numpy as np
 
 from analytics.counting import compute_counting_line
-from analytics.counter import GateCounter, GateCounterConfig
+from algorithms.counting.gate import GateCounter, GateCounterConfig, create_gate_counter_from_config
+from algorithms.counting.line import LineCounter, create_line_counter_from_config
 from domain.models import CountEvent
 from detection.tracker import TrackedVehicle
 from runtime.context import RuntimeContext
 
 
 class CountingService:
-    """Orchestrates tracking and counting strategies."""
+    """
+    Orchestrates tracking and counting strategies.
+    
+    Supports pluggable counting modes:
+    - "gate" (default): Two-line gate counting for bi-directional streets
+    - "line": Single-line fallback when gate is not feasible
+    
+    Both modes produce events with A_TO_B/B_TO_A direction codes.
+    """
 
     def __init__(self, ctx: RuntimeContext, counting_cfg: Dict):
         self.ctx = ctx
         self.counting_cfg = counting_cfg or {}
+        # Default to "gate" mode (standard for bi-directional streets)
+        self.mode = self.counting_cfg.get("mode", "gate")
         self.direction_labels = self.counting_cfg.get("direction_labels", {}) or {
             "a_to_b": "northbound",
             "b_to_a": "southbound",
         }
-        self.gate_params = self.counting_cfg.get("gate", {}) or {}
         self.counter = None
         self._line_a: Optional[List[Tuple[int, int]]] = None
         self._line_b: Optional[List[Tuple[int, int]]] = None
 
     def ensure_counter(self, frame_w: int, frame_h: int, fallback_counting_config=None):
+        """Create the appropriate counter based on mode."""
         if self.counter is not None:
             return
+        
         line_a_cfg = self.counting_cfg.get("line_a") or fallback_counting_config
         line_b_cfg = self.counting_cfg.get("line_b") or fallback_counting_config
-        self._line_a = compute_counting_line(line_a_cfg, frame_w, frame_h)
-        self._line_b = compute_counting_line(line_b_cfg, frame_w, frame_h)
-        self.counter = GateCounter(
-            GateCounterConfig(
-                line_a=self._line_a,
-                line_b=self._line_b,
-                direction_labels=self.direction_labels,
-                max_gap_frames=int(self.gate_params.get("max_gap_frames", 30)),
-                min_age_frames=int(self.gate_params.get("min_age_frames", 3)),
-                min_displacement_px=float(self.gate_params.get("min_displacement_px", 15.0)),
+        self._line_a = compute_counting_line(line_a_cfg, frame_w, frame_h) if line_a_cfg else []
+        self._line_b = compute_counting_line(line_b_cfg, frame_w, frame_h) if line_b_cfg else []
+        
+        if self.mode == "line":
+            # Single-line fallback mode
+            self.counter = create_line_counter_from_config(
+                self.counting_cfg,
+                frame_w,
+                frame_h,
             )
-        )
+        else:
+            # Gate mode (default)
+            self.counter = create_gate_counter_from_config(
+                self.counting_cfg,
+                frame_w,
+                frame_h,
+            )
 
     def get_gate_lines(self) -> Tuple[Optional[List[Tuple[int, int]]], Optional[List[Tuple[int, int]]]]:
         """Return the computed gate lines (A, B) in pixel coordinates."""

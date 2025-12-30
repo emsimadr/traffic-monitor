@@ -26,7 +26,7 @@ from typing import Dict, Any, Tuple, Optional
 
 # Import local modules
 from camera.camera import create_camera, inject_rtsp_credentials
-from analytics.counter import GateCounter, GateCounterConfig
+# Counting strategies are handled via runtime.services, not directly here
 from tracking.tracker import VehicleTracker
 from detection.vehicle import VehicleDetector
 from detection.bgsub_detector import BgSubDetector

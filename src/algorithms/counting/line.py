@@ -1,8 +1,11 @@
 """
-Simple line-based counting algorithm (single line).
+Single-line counting algorithm (fallback strategy).
 
-Counts when a track crosses a single counting line.
-Direction is determined by which side the track came from.
+Use this when a two-line gate is not feasible. For bi-directional streets,
+gate counting (gate.py) is preferred as the default strategy.
+
+This counter maps its internal crossing directions to A_TO_B/B_TO_A codes
+for consistency with the database schema and API responses.
 """
 
 from __future__ import annotations
@@ -14,6 +17,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from models.count_event import CountEvent
 from .base import Counter, CounterConfig
+
+
+# Direction code mapping: line crossing side -> standard direction code
+# "positive" (crossed from - to + side) maps to A_TO_B
+# "negative" (crossed from + to - side) maps to B_TO_A
+_DIRECTION_CODE_MAP = {
+    "positive": "A_TO_B",
+    "negative": "B_TO_A",
+}
 
 
 def _side_of_line(p: Tuple[float, float], a: Tuple[int, int], b: Tuple[int, int]) -> float:
@@ -77,7 +89,7 @@ def crossed_line(
 @dataclass
 class LineCounterConfig(CounterConfig):
     """
-    Configuration for single-line counting.
+    Configuration for single-line counting (fallback strategy).
     
     Attributes:
         line: Counting line as [(x1,y1), (x2,y2)] in pixels.
@@ -98,11 +110,15 @@ class _LineTrackState:
 
 class LineCounter(Counter):
     """
-    Single-line counter that detects crossings in either direction.
+    Single-line counter (fallback strategy for when gate counting isn't feasible).
     
-    Direction is determined by which side of the line the track came from:
-    - "positive" direction: track moved from negative side to positive side
-    - "negative" direction: track moved from positive side to negative side
+    Detects crossings of a single line. Direction is determined by which side
+    of the line the track came from, then mapped to standard A_TO_B/B_TO_A codes:
+    
+    - Crossing from negative to positive side -> A_TO_B
+    - Crossing from positive to negative side -> B_TO_A
+    
+    This ensures database and API consistency regardless of counting strategy.
     
     This counter does NOT modify track objects.
     """
@@ -163,9 +179,9 @@ class LineCounter(Counter):
             prev = trajectory[-2]
             curr = trajectory[-1]
             
-            # Check for line crossing
-            direction = crossed_line(prev, curr, self.line)
-            if direction is None:
+            # Check for line crossing (returns "positive" or "negative")
+            internal_direction = crossed_line(prev, curr, self.line)
+            if internal_direction is None:
                 continue
             
             # Validate constraints
@@ -177,13 +193,18 @@ class LineCounter(Counter):
             if displacement < self._line_config.min_displacement_px:
                 continue
             
-            # Get direction label
-            direction_label = self.direction_labels.get(direction, direction)
+            # Map internal direction to standard direction code (A_TO_B/B_TO_A)
+            direction_code = _DIRECTION_CODE_MAP[internal_direction]
             
-            # Create count event
+            # Get direction label from config
+            # Use lowercase key format for config lookup (a_to_b, b_to_a)
+            label_key = direction_code.lower()
+            direction_label = self.direction_labels.get(label_key, direction_code)
+            
+            # Create count event with standard direction code
             event = CountEvent(
                 track_id=track_id,
-                direction=direction,
+                direction=direction_code,  # Always A_TO_B or B_TO_A
                 direction_label=direction_label,
                 timestamp=time.time(),
                 counting_mode="line",
@@ -225,9 +246,10 @@ def create_line_counter_from_config(
     line_cfg = counting_cfg.get("line") or counting_cfg.get("line_a")
     line = compute_counting_line(line_cfg, frame_width, frame_height) if line_cfg else []
     
+    # Direction labels use standard A_TO_B/B_TO_A keys
     direction_labels = counting_cfg.get("direction_labels", {}) or {
-        "positive": "inbound",
-        "negative": "outbound",
+        "a_to_b": "northbound",
+        "b_to_a": "southbound",
     }
     
     config = LineCounterConfig(
@@ -238,4 +260,3 @@ def create_line_counter_from_config(
     )
     
     return LineCounter(config)
-

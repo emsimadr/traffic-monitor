@@ -9,10 +9,17 @@ type Line = [Point, Point] | null;
 
 type Props = {
   line: Line;
-  directionLabels: { positive: string; negative: string };
-  onChange: (line: Line, labels: { positive: string; negative: string }) => void;
+  // All modes use a_to_b/b_to_a direction codes for DB/API consistency
+  directionLabels: { a_to_b: string; b_to_a: string };
+  onChange: (line: Line, labels: { a_to_b: string; b_to_a: string }) => void;
 };
 
+/**
+ * Single-line counting editor (fallback when gate is not feasible).
+ * 
+ * Internally, crossing from + to - side maps to A_TO_B,
+ * and crossing from - to + side maps to B_TO_A.
+ */
 export function CountingLineEditor({ line, directionLabels, onChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -76,7 +83,7 @@ export function CountingLineEditor({ line, directionLabels, onChange }: Props) {
       ctx.arc(p2.x * canvas.width, p2.y * canvas.height, 5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Draw direction arrows
+      // Draw direction arrows showing A→B and B→A sides
       const midX = (p1.x + p2.x) / 2 * canvas.width;
       const midY = (p1.y + p2.y) / 2 * canvas.height;
       const dx = p2.x - p1.x;
@@ -84,7 +91,7 @@ export function CountingLineEditor({ line, directionLabels, onChange }: Props) {
       const perpX = -dy * 20;
       const perpY = dx * 20;
 
-      // Positive direction arrow
+      // A→B direction (positive side)
       ctx.strokeStyle = "rgba(74, 222, 128, 0.7)";
       ctx.beginPath();
       ctx.moveTo(midX, midY);
@@ -92,14 +99,14 @@ export function CountingLineEditor({ line, directionLabels, onChange }: Props) {
       ctx.stroke();
       ctx.fillStyle = "rgba(74, 222, 128, 0.9)";
       ctx.font = "12px sans-serif";
-      ctx.fillText("+", midX + perpX - 4, midY + perpY + 4);
+      ctx.fillText("A→B", midX + perpX - 12, midY + perpY + 4);
 
-      // Negative direction arrow
+      // B→A direction (negative side)
       ctx.beginPath();
       ctx.moveTo(midX, midY);
       ctx.lineTo(midX - perpX, midY - perpY);
       ctx.stroke();
-      ctx.fillText("-", midX - perpX - 4, midY - perpY + 4);
+      ctx.fillText("B→A", midX - perpX - 12, midY - perpY + 4);
     }
 
     // Draw temp point
@@ -125,7 +132,7 @@ export function CountingLineEditor({ line, directionLabels, onChange }: Props) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Counting Line</CardTitle>
+        <CardTitle>Counting Line (Fallback Mode)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex items-center gap-2 text-sm">
@@ -149,26 +156,29 @@ export function CountingLineEditor({ line, directionLabels, onChange }: Props) {
         </div>
 
         <p className="text-sm text-slate-400">
-          Click two points to define the counting line. Tracks crossing from the + side to - side count as "positive", 
-          and vice versa for "negative".
+          Click two points to define the counting line. Direction is determined by which side the track crossed from.
+          <br />
+          <span className="font-medium">Note:</span> For bi-directional streets, Two-Line Gate mode is recommended.
         </p>
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
-            <Label>Positive Direction (+ → -)</Label>
+            <Label>A → B Label</Label>
             <Input
-              value={labels.positive}
-              onChange={(e) => setLabels({ ...labels, positive: e.target.value })}
-              placeholder="inbound"
+              value={labels.a_to_b}
+              onChange={(e) => setLabels({ ...labels, a_to_b: e.target.value })}
+              placeholder="northbound"
             />
+            <p className="text-xs text-slate-500 mt-1">Crossing from positive side</p>
           </div>
           <div>
-            <Label>Negative Direction (- → +)</Label>
+            <Label>B → A Label</Label>
             <Input
-              value={labels.negative}
-              onChange={(e) => setLabels({ ...labels, negative: e.target.value })}
-              placeholder="outbound"
+              value={labels.b_to_a}
+              onChange={(e) => setLabels({ ...labels, b_to_a: e.target.value })}
+              placeholder="southbound"
             />
+            <p className="text-xs text-slate-500 mt-1">Crossing from negative side</p>
           </div>
         </div>
 
@@ -184,4 +194,3 @@ export function CountingLineEditor({ line, directionLabels, onChange }: Props) {
     </Card>
   );
 }
-

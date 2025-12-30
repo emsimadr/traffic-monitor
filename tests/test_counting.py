@@ -59,11 +59,11 @@ class TestComputeCountingLine:
 
 
 class TestLineCrossing:
-    """Tests for line crossing detection helpers from counter module."""
+    """Tests for line crossing detection helpers from counting strategies."""
 
     def test_side_of_line_positive(self):
         """Point on positive side of line (cross product > 0)."""
-        from analytics.counter import _side_of_line
+        from algorithms.counting.gate import _side_of_line
         
         # Line from (0,0) to (10,0) (horizontal going right)
         # Point (5, 5) is below the line (positive y in screen coords)
@@ -72,7 +72,7 @@ class TestLineCrossing:
 
     def test_side_of_line_negative(self):
         """Point on negative side of line (cross product < 0)."""
-        from analytics.counter import _side_of_line
+        from algorithms.counting.gate import _side_of_line
         
         # Line from (0,0) to (10,0) (horizontal going right)
         # Point (5, -5) is above the line (negative y in screen coords)
@@ -81,7 +81,7 @@ class TestLineCrossing:
 
     def test_side_of_line_on_line(self):
         """Point exactly on the line."""
-        from analytics.counter import _side_of_line
+        from algorithms.counting.gate import _side_of_line
         
         # Point (5, 0) is on the line from (0,0) to (10,0)
         result = _side_of_line((5, 0), (0, 0), (10, 0))
@@ -89,22 +89,21 @@ class TestLineCrossing:
 
     def test_segments_intersect_crossing(self):
         """Two segments that clearly cross."""
-        from analytics.counter import _segments_intersect
+        from algorithms.counting.gate import _segments_intersect
         
         # Segment from (0,0) to (10,10) crosses segment from (0,10) to (10,0)
         assert _segments_intersect((0, 0), (10, 10), (0, 10), (10, 0)) is True
 
     def test_segments_intersect_no_crossing(self):
         """Two segments that don't cross."""
-        from analytics.counter import _segments_intersect
+        from algorithms.counting.gate import _segments_intersect
         
         # Parallel horizontal segments
         assert _segments_intersect((0, 0), (10, 0), (0, 10), (10, 10)) is False
 
     def test_segments_intersect_endpoint_touch(self):
         """Segments touching at endpoint."""
-        from analytics.counter import _segments_intersect
+        from algorithms.counting.gate import _segments_intersect
         
         # Segments sharing endpoint - should count as crossing
         assert _segments_intersect((0, 0), (5, 5), (5, 5), (10, 0)) is True
-
