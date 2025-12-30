@@ -12,7 +12,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 import cv2
 import numpy as np
@@ -20,7 +20,6 @@ import numpy as np
 from models.frame import FrameData
 from observation import ObservationSource, create_source_from_config
 from runtime.context import RuntimeContext
-from runtime.services import CountingService
 from pipeline.stages.measure import MeasureStage, MeasureStageConfig, create_measure_stage
 
 
@@ -81,19 +80,12 @@ class PipelineEngine:
         self,
         source: ObservationSource,
         ctx: RuntimeContext,
-        measure_stage: Union[MeasureStage, CountingService],
+        measure_stage: MeasureStage,
         config: PipelineConfig,
     ):
         self.source = source
         self.ctx = ctx
-        # Support both old CountingService and new MeasureStage
-        self._measure_stage: Optional[MeasureStage] = None
-        self._counting_service: Optional[CountingService] = None
-        if isinstance(measure_stage, MeasureStage):
-            self._measure_stage = measure_stage
-        else:
-            # Legacy: CountingService
-            self._counting_service = measure_stage
+        self._measure_stage = measure_stage
         self.config = config
         self.stats = PipelineStats()
         self._running = False
@@ -204,20 +196,10 @@ class PipelineEngine:
             track_ids = [t.vehicle_id for t in active_tracks]
             logging.debug(f"[TRACK] frame={self.stats.frame_count} active_ids={track_ids}")
         
-        # Count using measure stage or legacy counting service
-        if self._measure_stage is not None:
-            # New: MeasureStage (does not modify tracks)
-            frame_h, frame_w = frame.shape[:2]
-            self._measure_stage.ensure_counter(frame_w, frame_h)
-            events = self._measure_stage.process(active_tracks, self.stats.frame_count)
-        else:
-            # Legacy: CountingService
-            frame_h, frame_w = frame.shape[:2]
-            self._counting_service.ensure_counter(frame_w, frame_h, fallback_counting_config=None)
-            events = self._counting_service.counter.process(active_tracks, self.stats.frame_count)
-            # Persist events (legacy path uses add_count_event)
-            for event in events:
-                self._counting_service.ctx.db.add_count_event(event)
+        # Count using measure stage
+        frame_h, frame_w = frame.shape[:2]
+        self._measure_stage.ensure_counter(frame_w, frame_h)
+        events = self._measure_stage.process(active_tracks, self.stats.frame_count)
         
         # Accumulate statistics
         for event in events:
@@ -406,10 +388,8 @@ class PipelineEngine:
 def create_engine_from_config(
     config: Dict[str, Any],
     ctx: RuntimeContext,
-    counting_service: Optional[CountingService] = None,
     display: bool = False,
     record: bool = False,
-    use_measure_stage: bool = True,
 ) -> PipelineEngine:
     """
     Factory function to create a PipelineEngine from existing config dict.
@@ -419,10 +399,8 @@ def create_engine_from_config(
     Args:
         config: Full application config dict.
         ctx: RuntimeContext with db, detector, tracker, etc.
-        counting_service: Legacy CountingService (used if use_measure_stage=False).
         display: Enable display window.
         record: Enable video recording.
-        use_measure_stage: Use new MeasureStage (default) vs legacy CountingService.
     """
     # Create observation source from camera config
     camera_cfg = config.get("camera", {})
@@ -436,13 +414,9 @@ def create_engine_from_config(
         record=record,
     )
     
-    # Create measure stage or use legacy counting service
-    if use_measure_stage:
-        counting_cfg = config.get("counting", {}) or {}
-        measure_stage = create_measure_stage(counting_cfg, db=ctx.db, persist=True)
-        return PipelineEngine(source, ctx, measure_stage, pipeline_config)
-    else:
-        if counting_service is None:
-            raise ValueError("counting_service required when use_measure_stage=False")
-        return PipelineEngine(source, ctx, counting_service, pipeline_config)
+    # Create measure stage
+    counting_cfg = config.get("counting", {}) or {}
+    measure_stage = create_measure_stage(counting_cfg, db=ctx.db, persist=True)
+    
+    return PipelineEngine(source, ctx, measure_stage, pipeline_config)
 

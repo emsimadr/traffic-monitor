@@ -259,12 +259,11 @@ class TestCreateEngineFromConfig:
         
         ctx = MagicMock()
         ctx.config = config
-        counting = MagicMock()
+        ctx.db = MagicMock()  # For MeasureStage
         
         engine = create_engine_from_config(
             config=config,
             ctx=ctx,
-            counting_service=counting,
             display=True,
             record=False,
         )
