@@ -18,8 +18,7 @@ import cv2
 import numpy as np
 
 from models.frame import FrameData
-from observation.base import ObservationSource
-from observation.opencv_source import OpenCVSource, OpenCVSourceConfig
+from observation import ObservationSource, create_source_from_config
 from runtime.context import RuntimeContext
 from runtime.services import CountingService
 from pipeline.stages.measure import MeasureStage, MeasureStageConfig, create_measure_stage
@@ -199,6 +198,11 @@ class PipelineEngine:
         
         # Get active tracks for counting
         active_tracks = self.ctx.tracker.get_active_tracks()
+        
+        # Debug: log active track IDs periodically (every 30 frames)
+        if self.stats.frame_count % 30 == 0 and active_tracks:
+            track_ids = [t.vehicle_id for t in active_tracks]
+            logging.debug(f"[TRACK] frame={self.stats.frame_count} active_ids={track_ids}")
         
         # Count using measure stage or legacy counting service
         if self._measure_stage is not None:
@@ -422,8 +426,7 @@ def create_engine_from_config(
     """
     # Create observation source from camera config
     camera_cfg = config.get("camera", {})
-    source_config = OpenCVSourceConfig.from_camera_config(camera_cfg, source_id="main-camera")
-    source = OpenCVSource(source_config)
+    source = create_source_from_config(camera_cfg, source_id="main-camera")
     
     # Create pipeline config
     storage_cfg = config.get("storage", {})

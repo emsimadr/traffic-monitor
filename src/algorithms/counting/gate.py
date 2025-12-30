@@ -268,6 +268,12 @@ class GateCounter(Counter):
         # Mark as counted (internal state only - NOT modifying track)
         self.mark_counted(track_id)
         
+        import logging
+        logging.info(
+            f"[COUNT] track_id={track_id} direction={sequence} "
+            f"frame={frame_idx} age={age_frames} displacement={displacement:.1f}px"
+        )
+        
         return event
 
     def _update_crossing_state(
@@ -332,7 +338,7 @@ def create_gate_counter_from_config(
         frame_width: Frame width for ratio-to-pixel conversion.
         frame_height: Frame height for ratio-to-pixel conversion.
     """
-    from analytics.counting import compute_counting_line
+    from algorithms.counting.utils import compute_counting_line
     
     line_a_cfg = counting_cfg.get("line_a")
     line_b_cfg = counting_cfg.get("line_b")
