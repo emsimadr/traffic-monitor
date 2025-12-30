@@ -53,7 +53,12 @@ class Database:
     def _get_connection(self) -> sqlite3.Connection:
         """Get or create database connection."""
         if self.conn is None:
-            self.conn = sqlite3.connect(self.local_database_path)
+            # check_same_thread=False allows connection to be used across threads
+            # This is safe when we use proper locking or single-writer patterns
+            self.conn = sqlite3.connect(
+                self.local_database_path,
+                check_same_thread=False,
+            )
         return self.conn
     
     def _get_schema_version(self) -> Optional[int]:

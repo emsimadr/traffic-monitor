@@ -238,17 +238,25 @@ class CloudSync:
         return False
     
     def _sync_vehicle_detections(self):
-        """Sync vehicle detection data to BigQuery."""
+        """Sync count events (vehicle detections) to BigQuery."""
         try:
             # Connect to local database
             conn = sqlite3.connect(self.database_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Get unsynchronized records
+            # Check if count_events table exists (new schema)
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='count_events'"
+            )
+            if cursor.fetchone() is None:
+                logging.info("No count_events table found - skipping sync")
+                return
+            
+            # Get unsynchronized records from new count_events table
             cursor.execute(
                 '''
-                SELECT * FROM vehicle_detections 
+                SELECT * FROM count_events 
                 WHERE cloud_synced = 0
                 ORDER BY id 
                 LIMIT ?
@@ -258,40 +266,48 @@ class CloudSync:
             
             records = cursor.fetchall()
             if not records:
-                logging.info("No new vehicle detections to sync")
+                logging.info("No new count events to sync")
                 return
             
-            logging.info(f"Syncing {len(records)} vehicle detection records")
+            logging.info(f"Syncing {len(records)} count event records")
             
-            # Prepare data for BigQuery
+            # Prepare data for BigQuery (map count_events to vehicle_detections schema)
             rows_to_insert = []
             record_ids = []
             
             for record in records:
                 row = dict(record)
                 record_ids.append(row['id'])
-                # Remove SQLite-specific fields
-                if 'cloud_synced' in row:
-                    del row['cloud_synced']
-                # Remove direction_label if BigQuery table doesn't have it yet
-                # (can be re-enabled after running: ALTER TABLE ... ADD COLUMN direction_label STRING)
-                if 'direction_label' in row:
-                    del row['direction_label']
+                
+                # Map count_events fields to BigQuery vehicle_detections schema
+                ts_seconds = row['ts'] / 1000.0 if row.get('ts') else time.time()
+                bq_row = {
+                    'id': row['id'],
+                    'timestamp': ts_seconds,
+                    'date_time': datetime.fromtimestamp(ts_seconds).isoformat(),
+                    'direction': row.get('direction_code', 'unknown'),
+                    'direction_label': row.get('direction_label'),
+                    'recorded_at': datetime.utcnow().isoformat(),
+                }
+                
+                # Remove direction_label if BigQuery table doesn't have it
+                if 'direction_label' in bq_row and bq_row['direction_label'] is None:
+                    del bq_row['direction_label']
                 
                 # Validate data before adding
-                if self._validate_vehicle_detection(row):
-                    rows_to_insert.append(row)
+                if self._validate_vehicle_detection(bq_row):
+                    rows_to_insert.append(bq_row)
                 else:
-                    logging.warning(f"Skipping invalid vehicle detection record {row.get('id')}")
+                    logging.warning(f"Skipping invalid count event record {row.get('id')}")
                     continue
             
             if not rows_to_insert:
-                logging.info("No valid vehicle detections to sync after validation")
+                logging.info("No valid count events to sync after validation")
                 # Mark records as synced even if invalid to avoid retrying
                 if record_ids:
                     placeholders = ','.join(['?' for _ in record_ids])
                     cursor.execute(
-                        f"UPDATE vehicle_detections SET cloud_synced = 1 WHERE id IN ({placeholders})",
+                        f"UPDATE count_events SET cloud_synced = 1 WHERE id IN ({placeholders})",
                         record_ids
                     )
                     conn.commit()
@@ -308,188 +324,46 @@ class CloudSync:
                 logging.error(f"BigQuery insertion errors: {errors}")
                 raise Exception("Failed to insert data into BigQuery")
             
-            # Mark records as synced
+            # Mark records as synced in count_events table
             placeholders = ','.join(['?' for _ in record_ids])
             cursor.execute(
-                f"UPDATE vehicle_detections SET cloud_synced = 1 WHERE id IN ({placeholders})",
+                f"UPDATE count_events SET cloud_synced = 1 WHERE id IN ({placeholders})",
                 record_ids
             )
             conn.commit()
             
-            logging.info(f"Successfully synced {len(records)} vehicle detections")
+            logging.info(f"Successfully synced {len(records)} count events")
         
         except Exception as e:
-            logging.error(f"Error syncing vehicle detections: {e}")
+            logging.error(f"Error syncing count events: {e}")
             raise
         finally:
             if 'conn' in locals():
                 conn.close()
     
     def _sync_hourly_counts(self):
-        """Sync hourly counts to BigQuery."""
-        try:
-            # Connect to local database
-            conn = sqlite3.connect(self.database_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Get unsynchronized records
-            cursor.execute(
-                '''
-                SELECT * FROM hourly_counts 
-                WHERE cloud_synced = 0
-                ORDER BY hour_beginning
-                LIMIT ?
-                ''',
-                (self.batch_size,)
-            )
-            
-            records = cursor.fetchall()
-            if not records:
-                logging.info("No new hourly counts to sync")
-                return
-            
-            logging.info(f"Syncing {len(records)} hourly count records")
-            
-            # Prepare data for BigQuery
-            rows_to_insert = []
-            record_ids = []
-            
-            for record in records:
-                row = dict(record)
-                record_ids.append(row['id'])
-                # Remove SQLite-specific fields
-                if 'cloud_synced' in row:
-                    del row['cloud_synced']
-                
-                # Validate data
-                if self._validate_hourly_count(row):
-                    rows_to_insert.append(row)
-                else:
-                    logging.warning(f"Skipping invalid hourly count record {row.get('id')}")
-                    continue
-            
-            if not rows_to_insert:
-                logging.info("No valid hourly counts to sync after validation")
-                if record_ids:
-                    placeholders = ','.join(['?' for _ in record_ids])
-                    cursor.execute(
-                        f"UPDATE hourly_counts SET cloud_synced = 1 WHERE id IN ({placeholders})",
-                        record_ids
-                    )
-                    conn.commit()
-                return
-            
-            # Get BigQuery table reference
-            dataset_id = self.config['gcp']['bigquery']['dataset_id']
-            table_id = self.config['gcp']['bigquery']['hourly_table']
-            table_ref = f"{self.project_id}.{dataset_id}.{table_id}"
-            
-            # Insert data to BigQuery
-            errors = self.bigquery_client.insert_rows_json(table_ref, rows_to_insert)
-            if errors:
-                logging.error(f"BigQuery insertion errors: {errors}")
-                raise Exception("Failed to insert hourly counts into BigQuery")
-            
-            # Mark records as synced
-            placeholders = ','.join(['?' for _ in record_ids])
-            cursor.execute(
-                f"UPDATE hourly_counts SET cloud_synced = 1 WHERE id IN ({placeholders})",
-                record_ids
-            )
-            conn.commit()
-            
-            logging.info(f"Successfully synced {len(records)} hourly counts")
+        """
+        Sync hourly counts to BigQuery.
         
-        except Exception as e:
-            logging.error(f"Error syncing hourly counts: {e}")
-            raise
-        finally:
-            if 'conn' in locals():
-                conn.close()
+        Note: hourly_counts table no longer exists. Hourly aggregates are now
+        computed on-the-fly from count_events. This method is a no-op but kept
+        for backward compatibility with the sync workflow.
+        """
+        # Hourly counts are computed on-the-fly from count_events
+        # No separate table to sync
+        logging.debug("Hourly counts sync skipped - computed on-the-fly from count_events")
     
     def _sync_daily_counts(self):
-        """Sync daily counts to BigQuery."""
-        try:
-            # Connect to local database
-            conn = sqlite3.connect(self.database_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Get unsynchronized records
-            cursor.execute(
-                '''
-                SELECT * FROM daily_counts 
-                WHERE cloud_synced = 0
-                ORDER BY date
-                LIMIT ?
-                ''',
-                (self.batch_size,)
-            )
-            
-            records = cursor.fetchall()
-            if not records:
-                logging.info("No new daily counts to sync")
-                return
-            
-            logging.info(f"Syncing {len(records)} daily count records")
-            
-            # Prepare data for BigQuery
-            rows_to_insert = []
-            record_ids = []
-            
-            for record in records:
-                row = dict(record)
-                record_ids.append(row['id'])
-                # Remove SQLite-specific fields
-                if 'cloud_synced' in row:
-                    del row['cloud_synced']
-                
-                # Validate data
-                if self._validate_daily_count(row):
-                    rows_to_insert.append(row)
-                else:
-                    logging.warning(f"Skipping invalid daily count record {row.get('id')}")
-                    continue
-            
-            if not rows_to_insert:
-                logging.info("No valid daily counts to sync after validation")
-                if record_ids:
-                    placeholders = ','.join(['?' for _ in record_ids])
-                    cursor.execute(
-                        f"UPDATE daily_counts SET cloud_synced = 1 WHERE id IN ({placeholders})",
-                        record_ids
-                    )
-                    conn.commit()
-                return
-            
-            # Get BigQuery table reference
-            dataset_id = self.config['gcp']['bigquery']['dataset_id']
-            table_id = self.config['gcp']['bigquery']['daily_table']
-            table_ref = f"{self.project_id}.{dataset_id}.{table_id}"
-            
-            # Insert data to BigQuery
-            errors = self.bigquery_client.insert_rows_json(table_ref, rows_to_insert)
-            if errors:
-                logging.error(f"BigQuery insertion errors: {errors}")
-                raise Exception("Failed to insert daily counts into BigQuery")
-            
-            # Mark records as synced
-            placeholders = ','.join(['?' for _ in record_ids])
-            cursor.execute(
-                f"UPDATE daily_counts SET cloud_synced = 1 WHERE id IN ({placeholders})",
-                record_ids
-            )
-            conn.commit()
-            
-            logging.info(f"Successfully synced {len(records)} daily counts")
+        """
+        Sync daily counts to BigQuery.
         
-        except Exception as e:
-            logging.error(f"Error syncing daily counts: {e}")
-            raise
-        finally:
-            if 'conn' in locals():
-                conn.close()
+        Note: daily_counts table no longer exists. Daily aggregates are now
+        computed on-the-fly from count_events. This method is a no-op but kept
+        for backward compatibility with the sync workflow.
+        """
+        # Daily counts are computed on-the-fly from count_events
+        # No separate table to sync
+        logging.debug("Daily counts sync skipped - computed on-the-fly from count_events")
     
     def upload_video_sample(self, video_path, metadata=None):
         """
