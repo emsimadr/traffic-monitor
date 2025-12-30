@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from models.count_event import CountEvent
 from algorithms.counting.base import Counter
@@ -56,7 +56,6 @@ class MeasureStage:
         self,
         config: MeasureStageConfig,
         db: Any = None,
-        on_event: Optional[Callable[[CountEvent], None]] = None,
     ):
         """
         Initialize the measure stage.
@@ -64,11 +63,9 @@ class MeasureStage:
         Args:
             config: Stage configuration.
             db: Database instance for persisting events.
-            on_event: Optional callback for each count event.
         """
         self._config = config
         self._db = db
-        self._on_event = on_event
         self._counter: Optional[Counter] = None
         self._frame_size: Optional[Tuple[int, int]] = None
 
@@ -134,14 +131,9 @@ class MeasureStage:
         # Run counter (does not modify tracks)
         events = self._counter.process(tracks, frame_idx)
         
-        # Persist and notify
+        # Persist events
         for event in events:
             self._persist_event(event)
-            if self._on_event:
-                try:
-                    self._on_event(event)
-                except Exception as e:
-                    logging.warning(f"Event callback error: {e}")
         
         return events
 

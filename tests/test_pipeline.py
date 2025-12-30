@@ -115,7 +115,6 @@ class MockMeasureStage(MeasureStage):
         # Don't call super().__init__ to avoid needing real config
         self._config = MeasureStageConfig()
         self._db = None
-        self._on_event = None
         self._counter = None
         self._frame_size = None
         self.processed_frames = 0
