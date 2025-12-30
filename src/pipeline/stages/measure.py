@@ -95,7 +95,7 @@ class MeasureStage:
             return
         
         self._frame_size = (frame_width, frame_height)
-        mode = self._config.counting_config.get("mode", "line")
+        mode = self._config.counting_config.get("mode", "gate")
         
         if mode == "gate":
             self._counter = create_gate_counter_from_config(

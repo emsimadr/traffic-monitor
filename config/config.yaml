@@ -5,6 +5,7 @@ camera:
   flip_vertical: false
 detection: {}
 counting:
+  mode: "gate"
   line_a:
   - - 0.5710332103321033
     - 0.26404264042640424
