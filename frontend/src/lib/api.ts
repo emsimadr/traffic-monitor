@@ -1,5 +1,8 @@
 export type StatusLevel = "running" | "degraded" | "offline";
 
+/**
+ * Full status response from /api/status (legacy)
+ */
 export interface StatusResponse {
   status: StatusLevel;
   alerts: string[];
@@ -18,6 +21,24 @@ export interface StatusResponse {
   timestamp: number;
 }
 
+/**
+ * Compact status response from /api/api/status (new, optimized for polling)
+ */
+export interface CompactStatusResponse {
+  running: boolean;
+  last_frame_age_s: number | null;
+  fps_capture: number | null;
+  fps_infer: number | null;
+  infer_latency_ms_p50: number | null;
+  infer_latency_ms_p95: number | null;
+  counts_today_total: number;
+  counts_by_direction_code: Record<string, number>;
+  direction_labels: Record<string, string>;
+  cpu_temp_c: number | null;
+  disk_free_pct: number | null;
+  warnings: string[];
+}
+
 export interface StatsSummary {
   total_detections: number;
   last_hour: number;
@@ -26,6 +47,33 @@ export interface StatsSummary {
 }
 
 export interface HealthResponse {
+  timestamp?: number;
+  platform?: string;
+  python?: string;
+  cwd?: string;
+  storage_db_path?: string;
+  log_path?: string;
+  [key: string]: unknown;
+}
+
+export interface CountingConfig {
+  mode?: "line" | "gate";
+  line_a?: number[][];
+  line_b?: number[][];
+  direction_labels?: {
+    positive?: string;
+    negative?: string;
+    a_to_b?: string;
+    b_to_a?: string;
+  };
+  min_age_frames?: number;
+  min_displacement_px?: number;
+  max_gap_frames?: number;
+}
+
+export interface CalibrationResponse {
+  counting?: CountingConfig;
+  camera?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -38,21 +86,26 @@ const json = async <T>(url: string, init?: RequestInit): Promise<T> => {
   return res.json();
 };
 
+// Status endpoints
 export const fetchStatus = () => json<StatusResponse>("/api/status");
+export const fetchCompactStatus = () => json<CompactStatusResponse>("/api/api/status");
+
+// Stats and health
 export const fetchStats = () => json<StatsSummary>("/api/stats/summary");
 export const fetchHealth = () => json<HealthResponse>("/api/health");
 
-export const fetchConfig = () => json<any>("/api/config"); // existing API expects POST for save
-export const saveConfig = (overrides: any) =>
+// Config
+export const fetchConfig = () => json<Record<string, unknown>>("/api/config");
+export const saveConfig = (overrides: Record<string, unknown>) =>
   json<{ ok: boolean }>("/api/config", {
     method: "POST",
     body: JSON.stringify({ overrides }),
   });
 
-export const fetchCalibration = () => json<any>("/api/calibration");
-export const saveCalibration = (payload: any) =>
+// Calibration (counting config)
+export const fetchCalibration = () => json<CalibrationResponse>("/api/calibration");
+export const saveCalibration = (payload: Partial<CalibrationResponse>) =>
   json<{ ok: boolean }>("/api/calibration", {
     method: "POST",
     body: JSON.stringify(payload),
   });
-

@@ -1,93 +1,143 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchCalibration, fetchStats, fetchStatus } from "../lib/api";
+import { fetchCompactStatus } from "../lib/api";
 import { LiveFeed } from "../components/LiveFeed";
 import { CountsCard } from "../components/CountsCard";
 import { AlertsList } from "../components/AlertsList";
-import { RecentEvents } from "../components/RecentEvents";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { formatDistanceToNowStrict } from "../lib/time";
 
 export default function Dashboard() {
-  const statusQuery = useQuery({ queryKey: ["status"], queryFn: fetchStatus, refetchInterval: 2000 });
-  const statsQuery = useQuery({ queryKey: ["stats"], queryFn: fetchStats, refetchInterval: 5000 });
-  const calQuery = useQuery({ queryKey: ["calibration"], queryFn: fetchCalibration, refetchInterval: 10000 });
+  // Poll compact status every 2 seconds
+  const statusQuery = useQuery({
+    queryKey: ["compact-status"],
+    queryFn: fetchCompactStatus,
+    refetchInterval: 2000,
+  });
 
-  const today = statsQuery.data?.last_24h ?? null;
-  const last15 = statusQuery.data?.stats?.last_hour ?? null; // proxy for short-term
-  const rate = last15 != null ? last15 / 15 : null;
-  const alerts = statusQuery.data?.alerts ?? [];
+  const data = statusQuery.data;
 
-  // Get direction labels from config
-  const directionLabels = useMemo(() => {
-    const labels = calQuery.data?.counting?.direction_labels || {};
-    return {
-      a_to_b: labels.a_to_b || "A → B",
-      b_to_a: labels.b_to_a || "B → A",
-    };
-  }, [calQuery.data]);
+  // Extract values from compact status
+  const countsToday = data?.counts_today_total ?? 0;
+  const fps = data?.fps_capture ?? null;
+  const warnings = data?.warnings ?? [];
+  const lastFrameAge = data?.last_frame_age_s ?? null;
+  const running = data?.running ?? false;
 
-  // Map raw directions to labeled directions
+  // Map direction codes to labels
   const directions = useMemo(() => {
-    const raw = statsQuery.data?.last_24h_by_direction ?? {};
-    const mapped: Record<string, number> = {};
-    
-    // Map each direction to its label
-    for (const [key, value] of Object.entries(raw)) {
-      if (key === "A_TO_B" || key === directionLabels.a_to_b) {
-        mapped[directionLabels.a_to_b] = (mapped[directionLabels.a_to_b] || 0) + (value as number);
-      } else if (key === "B_TO_A" || key === directionLabels.b_to_a) {
-        mapped[directionLabels.b_to_a] = (mapped[directionLabels.b_to_a] || 0) + (value as number);
-      } else {
-        // Keep other labels as-is
-        mapped[key] = value as number;
-      }
-    }
-    
-    return mapped;
-  }, [statsQuery.data, directionLabels]);
+    if (!data) return {};
+    const counts = data.counts_by_direction_code || {};
+    const labels = data.direction_labels || {};
 
-
-  const recentEvents = useMemo(() => {
-    const evts: string[] = [];
-    if (statusQuery.data?.last_frame_age != null) {
-      evts.push(`Last frame ${formatDistanceToNowStrict(statusQuery.data.last_frame_age)}`);
+    const result: Record<string, number> = {};
+    for (const [code, count] of Object.entries(counts)) {
+      const label = labels[code] || code;
+      result[label] = count;
     }
-    if (statusQuery.data?.fps != null) {
-      evts.push(`FPS ${statusQuery.data.fps.toFixed(1)}`);
-    }
-    return evts;
-  }, [statusQuery.data]);
+    return result;
+  }, [data]);
 
   return (
     <div className="space-y-4">
+      {/* Status indicator */}
+      <div className="flex items-center gap-2 text-sm">
+        <div
+          className={`h-2 w-2 rounded-full ${
+            running ? "bg-green-500" : "bg-red-500"
+          }`}
+        />
+        <span className={running ? "text-green-400" : "text-red-400"}>
+          {running ? "Running" : "Offline"}
+        </span>
+        {fps != null && (
+          <span className="text-slate-400">• {fps.toFixed(1)} FPS</span>
+        )}
+        {lastFrameAge != null && (
+          <span className="text-slate-400">
+            • Frame age: {lastFrameAge.toFixed(1)}s
+          </span>
+        )}
+      </div>
+
+      {/* Main content grid */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Live feed - takes 2 columns on large screens */}
         <div className="lg:col-span-2">
           <Card>
-            <CardHeader className="flex items-center justify-between">
-              <CardTitle>Live</CardTitle>
-              <div className="text-xs text-slate-400">/api/camera/live.mjpg</div>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-lg">Live Feed</CardTitle>
+              <span className="text-xs text-slate-500">/api/camera/live.mjpg</span>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               <LiveFeed />
             </CardContent>
           </Card>
         </div>
-        <CountsCard today={today} last15={last15} rate={rate} directions={directions} />
+
+        {/* Counts card */}
+        <CountsCard
+          today={countsToday}
+          directions={directions}
+          fps={fps}
+          lastFrameAge={lastFrameAge}
+        />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <AlertsList alerts={alerts} />
-        <RecentEvents events={recentEvents} />
+      {/* Bottom row */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {/* Alerts */}
+        <AlertsList alerts={warnings} />
+
+        {/* System stats */}
         <Card>
           <CardHeader>
-            <CardTitle>Summary</CardTitle>
+            <CardTitle className="text-lg">System</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm text-slate-200">
-            <div>Uptime: {statusQuery.data?.uptime_seconds != null ? formatDuration(statusQuery.data.uptime_seconds) : "—"}</div>
-            <div>Last frame age: {statusQuery.data?.last_frame_age != null ? formatDistanceToNowStrict(statusQuery.data.last_frame_age) : "—"}</div>
-            <div>Disk free: {statusQuery.data?.disk?.pct_free != null ? `${statusQuery.data.disk.pct_free.toFixed(1)}%` : "—"}</div>
-            <div>Temp: {statusQuery.data?.temp_c != null ? `${statusQuery.data.temp_c.toFixed(1)}°C` : "—"}</div>
+          <CardContent className="space-y-2 text-sm">
+            <StatRow
+              label="CPU Temp"
+              value={data?.cpu_temp_c != null ? `${data.cpu_temp_c.toFixed(1)}°C` : "—"}
+              warn={data?.cpu_temp_c != null && data.cpu_temp_c > 70}
+            />
+            <StatRow
+              label="Disk Free"
+              value={data?.disk_free_pct != null ? `${data.disk_free_pct.toFixed(1)}%` : "—"}
+              warn={data?.disk_free_pct != null && data.disk_free_pct < 20}
+            />
+            <StatRow
+              label="Inference"
+              value={
+                data?.fps_infer != null
+                  ? `${data.fps_infer.toFixed(1)} FPS`
+                  : "N/A"
+              }
+            />
+            <StatRow
+              label="Latency (p50)"
+              value={
+                data?.infer_latency_ms_p50 != null
+                  ? `${data.infer_latency_ms_p50.toFixed(0)}ms`
+                  : "N/A"
+              }
+            />
+          </CardContent>
+        </Card>
+
+        {/* Quick info */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Direction Labels</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {Object.entries(data?.direction_labels || {}).map(([code, label]) => (
+              <div key={code} className="flex justify-between">
+                <span className="text-slate-400">{code}</span>
+                <span>{label}</span>
+              </div>
+            ))}
+            {Object.keys(data?.direction_labels || {}).length === 0 && (
+              <div className="text-slate-500">No labels configured</div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -95,8 +145,19 @@ export default function Dashboard() {
   );
 }
 
-function formatDuration(seconds: number) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
+function StatRow({
+  label,
+  value,
+  warn,
+}: {
+  label: string;
+  value: string;
+  warn?: boolean;
+}) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-slate-400">{label}</span>
+      <span className={warn ? "text-amber-400" : ""}>{value}</span>
+    </div>
+  );
 }
