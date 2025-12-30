@@ -17,7 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from models.count_event import CountEvent
 
 # Schema version - increment when schema changes
-EXPECTED_SCHEMA_VERSION = 1
+# Version 2: Added unique constraint on (track_id, ts_second) to prevent double-counting
+EXPECTED_SCHEMA_VERSION = 2
 
 
 class Database:
@@ -142,6 +143,13 @@ class Database:
             "CREATE INDEX idx_count_events_cloud_synced ON count_events(cloud_synced)"
         )
         
+        # Defense-in-depth: prevent duplicate counts for same track within same second
+        # This catches edge cases where the counting logic might emit duplicates
+        cursor.execute(
+            "CREATE UNIQUE INDEX idx_count_events_track_second "
+            "ON count_events(track_id, ts / 1000)"
+        )
+        
         # Insert schema version
         cursor.execute(
             "INSERT INTO schema_meta (id, schema_version) VALUES (1, ?)",
@@ -240,6 +248,14 @@ class Database:
             )
             return cursor.lastrowid
             
+        except sqlite3.IntegrityError as e:
+            # Unique constraint violation - duplicate count for same track/second
+            # This is defense-in-depth; the counting logic should prevent this
+            logging.warning(
+                f"Duplicate count event rejected (defense-in-depth): "
+                f"track={event.track_id}, direction={event.direction}"
+            )
+            return None
         except sqlite3.Error as e:
             logging.error(f"Error adding count event: {e}")
             return None

@@ -221,6 +221,53 @@ class TestWriteOperations:
         conn.close()
         db.close()
     
+    def test_duplicate_count_rejected(self, temp_db):
+        """Duplicate count for same track within same second is rejected."""
+        db = Database(temp_db)
+        db.initialize()
+        
+        # Use current time so it's within the default 24-hour query range
+        # Floor to whole second to ensure both events are in same second
+        ts = float(int(time.time()))
+        
+        # First event should succeed
+        event1 = CountEvent(
+            track_id=42,
+            direction="A_TO_B",
+            direction_label="northbound",
+            timestamp=ts + 0.100,  # 100ms into the second
+            counting_mode="gate",
+            gate_sequence="A,B",
+            line_a_cross_frame=10,
+            line_b_cross_frame=20,
+            track_age_frames=15,
+            track_displacement_px=100.0,
+        )
+        result1 = db.add_count_event(event1)
+        assert result1 is not None
+        
+        # Second event with same track_id and same second should be rejected
+        # ts is stored as milliseconds, unique index is on ts/1000 (seconds)
+        event2 = CountEvent(
+            track_id=42,
+            direction="A_TO_B",
+            direction_label="northbound",
+            timestamp=ts + 0.500,  # Same second (500ms), different ms
+            counting_mode="gate",
+            gate_sequence="A,B",
+            line_a_cross_frame=10,
+            line_b_cross_frame=20,
+            track_age_frames=15,
+            track_displacement_px=100.0,
+        )
+        result2 = db.add_count_event(event2)
+        assert result2 is None  # Rejected due to unique constraint
+        
+        # Only one event should be in the database
+        assert db.get_count_total() == 1
+        
+        db.close()
+    
     def test_legacy_add_vehicle_detection(self, temp_db):
         """Legacy method still works."""
         db = Database(temp_db)
