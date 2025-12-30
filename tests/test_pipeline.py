@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from collections import deque
 
 from pipeline.engine import PipelineEngine, PipelineConfig, create_engine_from_config
+from pipeline.stages.measure import MeasureStage, MeasureStageConfig
 from observation.base import ObservationSource, ObservationConfig
 from models.frame import FrameData
 
@@ -107,18 +108,31 @@ class MockWebState:
         self.stats.update(stats)
 
 
-class MockCountingService:
-    """Mock counting service for testing."""
+class MockMeasureStage(MeasureStage):
+    """Mock measure stage for testing."""
     
     def __init__(self):
+        # Don't call super().__init__ to avoid needing real config
+        self._config = MeasureStageConfig()
+        self._db = None
+        self._on_event = None
+        self._counter = None
+        self._frame_size = None
         self.processed_frames = 0
+        self._counted_ids = set()
     
-    def process(self, detections, frame, frame_idx, counting_config_fallback=None):
+    def ensure_counter(self, frame_w, frame_h):
+        pass  # No-op for mock
+    
+    def process(self, tracks, frame_idx):
         self.processed_frames += 1
         return []  # No events
     
     def get_gate_lines(self):
         return None, None
+    
+    def is_counted(self, track_id):
+        return track_id in self._counted_ids
 
 
 class TestPipelineConfig:
@@ -166,14 +180,14 @@ class TestPipelineEngine:
         source_config = ObservationConfig(source_id="test")
         source = MockObservationSource(source_config, max_frames=3)
         ctx = self._create_mock_ctx()
-        counting = MockCountingService()
+        measure = MockMeasureStage()
         config = PipelineConfig()
         
-        engine = PipelineEngine(source, ctx, counting, config)
+        engine = PipelineEngine(source, ctx, measure, config)
         engine.run()
         
         # Should have processed 3 frames
-        assert counting.processed_frames == 3
+        assert measure.processed_frames == 3
         assert engine.stats.frame_count == 3
 
     def test_engine_stops_on_failures(self):
@@ -182,10 +196,10 @@ class TestPipelineEngine:
         # Source that always returns None (simulates failure)
         source = MockObservationSource(source_config, frames=[])
         ctx = self._create_mock_ctx()
-        counting = MockCountingService()
+        measure = MockMeasureStage()
         config = PipelineConfig(max_consecutive_failures=3)
         
-        engine = PipelineEngine(source, ctx, counting, config)
+        engine = PipelineEngine(source, ctx, measure, config)
         
         # Patch time.sleep to speed up test
         with patch('time.sleep'):
@@ -199,14 +213,14 @@ class TestPipelineEngine:
         source_config = ObservationConfig(source_id="test")
         source = MockObservationSource(source_config, max_frames=2)
         ctx = self._create_mock_ctx()
-        counting = MockCountingService()
+        measure = MockMeasureStage()
         config = PipelineConfig()
         
         callback_calls = []
         def my_callback(frame_data, events):
             callback_calls.append((frame_data.frame_index, events))
         
-        engine = PipelineEngine(source, ctx, counting, config)
+        engine = PipelineEngine(source, ctx, measure, config)
         engine.add_callback(my_callback)
         engine.run()
         
@@ -219,10 +233,10 @@ class TestPipelineEngine:
         source_config = ObservationConfig(source_id="test")
         source = MockObservationSource(source_config, max_frames=2)
         ctx = self._create_mock_ctx()
-        counting = MockCountingService()
+        measure = MockMeasureStage()
         config = PipelineConfig()
         
-        engine = PipelineEngine(source, ctx, counting, config)
+        engine = PipelineEngine(source, ctx, measure, config)
         engine.run()
         
         # Web state should have received frames
