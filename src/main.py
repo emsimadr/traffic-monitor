@@ -52,45 +52,8 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return base
 
 
-def _inject_rtsp_credentials(camera_cfg: Dict[str, Any]) -> None:
-    """
-    Inject RTSP credentials into the device_id URL if secrets are provided.
-    
-    Args:
-        camera_cfg: Camera configuration dict (modified in place).
-    """
-    secrets_file = camera_cfg.get("secrets_file")
-    if not secrets_file:
-        return
-    
-    if not os.path.exists(secrets_file):
-        logging.warning(f"Secrets file not found: {secrets_file}")
-        return
-    
-    try:
-        with open(secrets_file, "r") as f:
-            secrets = yaml.safe_load(f) or {}
-        
-        username = secrets.get("username")
-        password = secrets.get("password")
-        
-        if username and password:
-            device_id = camera_cfg.get("device_id", "")
-            if isinstance(device_id, str) and device_id.startswith("rtsp://"):
-                # Inject credentials: rtsp://user:pass@host/path
-                from urllib.parse import urlparse, urlunparse
-                parsed = urlparse(device_id)
-                netloc = f"{username}:{password}@{parsed.hostname}"
-                if parsed.port:
-                    netloc += f":{parsed.port}"
-                new_url = urlunparse((
-                    parsed.scheme, netloc, parsed.path,
-                    parsed.params, parsed.query, parsed.fragment
-                ))
-                camera_cfg["device_id"] = new_url
-                logging.info("RTSP credentials injected into device URL")
-    except Exception as e:
-        logging.error(f"Failed to inject RTSP credentials: {e}")
+# Import the shared RTSP credential injection utility
+from observation.rtsp_utils import inject_rtsp_credentials
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -214,7 +177,7 @@ def main():
     
     # Load and validate configuration
     config = load_config(args.config)
-    _inject_rtsp_credentials(config["camera"])
+    inject_rtsp_credentials(config["camera"])
     
     is_valid, error_msg = validate_config(config)
     if not is_valid:

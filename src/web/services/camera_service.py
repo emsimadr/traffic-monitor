@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Dict, Iterable
 
 import cv2
 
-# Use absolute import so running `python src/main.py` or uvicorn both work.
-from camera.camera import create_camera, inject_rtsp_credentials
+from observation import create_source_from_config
+from observation.rtsp_utils import inject_rtsp_credentials
 
 
 class CameraService:
@@ -16,18 +17,19 @@ class CameraService:
         cam_cfg = dict(cam_cfg)
         inject_rtsp_credentials(cam_cfg)
 
-        camera = create_camera(cam_cfg)
+        source = create_source_from_config(cam_cfg)
         try:
-            ok, frame = camera.read()
-            if not ok or frame is None:
+            source.open()
+            frame_data = source.read()
+            if frame_data is None:
                 raise RuntimeError("Failed to read frame from camera")
 
-            ok2, buf = cv2.imencode(".jpg", frame)
-            if not ok2:
+            ok, buf = cv2.imencode(".jpg", frame_data.frame)
+            if not ok:
                 raise RuntimeError("Failed to encode JPEG")
             return buf.tobytes()
         finally:
-            camera.release()
+            source.close()
 
     @staticmethod
     def mjpeg_stream(cam_cfg: Dict[str, Any], fps: int = 5) -> Iterable[bytes]:
@@ -43,21 +45,22 @@ class CameraService:
 
         cam_cfg = dict(cam_cfg)
         inject_rtsp_credentials(cam_cfg)
-        camera = create_camera(cam_cfg)
+        source = create_source_from_config(cam_cfg)
         try:
+            source.open()
             while True:
-                ok, frame = camera.read()
-                if not ok or frame is None:
+                frame_data = source.read()
+                if frame_data is None:
                     time.sleep(delay)
                     continue
-                ok2, buf = cv2.imencode(".jpg", frame)
-                if not ok2:
+                ok, buf = cv2.imencode(".jpg", frame_data.frame)
+                if not ok:
                     time.sleep(delay)
                     continue
                 jpg = buf.tobytes()
                 yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
                 time.sleep(delay)
         finally:
-            camera.release()
+            source.close()
 
 
