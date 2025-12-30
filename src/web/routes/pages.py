@@ -1,3 +1,10 @@
+"""
+Page routes for the Traffic Monitor web interface.
+
+- Main routes (/, /config, /health, /logs) serve the React SPA
+- Legacy routes (/legacy/*) serve Jinja2 templates
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,10 +22,58 @@ templates = Jinja2Templates(directory="src/web/templates")
 dist_index = Path("frontend/dist/index.html")
 
 
-@router.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
+# -----------------------------------------------------------------------------
+# React SPA Routes (served from frontend/dist/index.html)
+# -----------------------------------------------------------------------------
+
+def _serve_spa():
+    """Serve the React SPA index.html."""
     if dist_index.exists():
         return FileResponse(dist_index)
+    return HTMLResponse(
+        content="<h1>Frontend not built</h1><p>Run <code>npm run build</code> in frontend/</p>",
+        status_code=503,
+    )
+
+
+@router.get("/", response_class=HTMLResponse)
+def spa_dashboard():
+    """Dashboard page (React SPA)."""
+    return _serve_spa()
+
+
+@router.get("/config", response_class=HTMLResponse)
+def spa_config():
+    """Configuration page (React SPA)."""
+    return _serve_spa()
+
+
+@router.get("/health", response_class=HTMLResponse)
+def spa_health():
+    """Health page (React SPA)."""
+    return _serve_spa()
+
+
+@router.get("/logs", response_class=HTMLResponse)
+def spa_logs():
+    """Logs page (React SPA)."""
+    return _serve_spa()
+
+
+@router.get("/calibration", response_class=HTMLResponse)
+def spa_calibration():
+    """Calibration page (React SPA)."""
+    return _serve_spa()
+
+
+# -----------------------------------------------------------------------------
+# Legacy Jinja2 Template Routes (preserved for backward compatibility)
+# -----------------------------------------------------------------------------
+
+@router.get("/legacy", response_class=HTMLResponse)
+@router.get("/legacy/", response_class=HTMLResponse)
+def legacy_dashboard(request: Request):
+    """Legacy dashboard (Jinja2 template)."""
     cfg = ConfigService.load_effective_config()
     db_path = cfg["storage"]["local_database_path"]
     direction_labels = (cfg.get("counting", {}) or {}).get("direction_labels")
@@ -30,10 +85,9 @@ def dashboard(request: Request):
     )
 
 
-@router.get("/config", response_class=HTMLResponse)
-def config_page(request: Request):
-    if dist_index.exists():
-        return FileResponse(dist_index)
+@router.get("/legacy/config", response_class=HTMLResponse)
+def legacy_config_page(request: Request):
+    """Legacy config page (Jinja2 template)."""
     cfg = ConfigService.load_effective_config()
     overrides = ConfigService.load_overrides()
     return templates.TemplateResponse(
@@ -42,10 +96,9 @@ def config_page(request: Request):
     )
 
 
-@router.get("/calibration", response_class=HTMLResponse)
-def calibration_page(request: Request):
-    if dist_index.exists():
-        return FileResponse(dist_index)
+@router.get("/legacy/calibration", response_class=HTMLResponse)
+def legacy_calibration_page(request: Request):
+    """Legacy calibration page (Jinja2 template)."""
     cfg = ConfigService.load_effective_config()
     return templates.TemplateResponse(
         "calibration.html",
@@ -53,11 +106,8 @@ def calibration_page(request: Request):
     )
 
 
-@router.get("/logs", response_class=HTMLResponse)
-def logs_page(request: Request):
-    if dist_index.exists():
-        return FileResponse(dist_index)
+@router.get("/legacy/logs", response_class=HTMLResponse)
+def legacy_logs_page(request: Request):
+    """Legacy logs page (Jinja2 template)."""
     cfg = ConfigService.load_effective_config()
     return templates.TemplateResponse("logs.html", {"request": request, "cfg": cfg})
-
-
