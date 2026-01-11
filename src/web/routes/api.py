@@ -22,31 +22,43 @@ router = APIRouter()
 router_v1 = APIRouter(prefix="/api/v1")
 
 
-def _derive_status(last_frame_age: Optional[float], disk_pct_free: Optional[float], temp_c: Optional[float]):
+def _compute_warnings(
+    last_frame_age_s: Optional[float],
+    disk_free_pct: Optional[float],
+    cpu_temp_c: Optional[float],
+) -> List[str]:
     """
-    Lightweight status classifier used by /api/status.
-    Thresholds: >10s last frame => offline; >2s => degraded; disk free <10% warn; temp >80C warn.
+    Compute warning flags for status endpoints.
+    
+    Thresholds:
+    - camera_stale: last_frame_age_s > 2
+    - camera_offline: last_frame_age_s > 10 or None
+    - disk_low: disk_free_pct < 10
+    - temp_high: cpu_temp_c > 80
     """
-    level = "running"
-    alerts: List[str] = []
-    if last_frame_age is None or last_frame_age > 10:
-        level = "offline"
-        alerts.append("camera_offline")
-    elif last_frame_age > 2:
-        level = "degraded"
-        alerts.append("camera_stale")
+    warnings = []
+    
+    if last_frame_age_s is None or last_frame_age_s > 10:
+        warnings.append("camera_offline")
+    elif last_frame_age_s > 2:
+        warnings.append("camera_stale")
+    
+    if disk_free_pct is not None and disk_free_pct < 10:
+        warnings.append("disk_low")
+    
+    if cpu_temp_c is not None and cpu_temp_c > 80:
+        warnings.append("temp_high")
+    
+    return warnings
 
-    if disk_pct_free is not None and disk_pct_free < 10:
-        alerts.append("disk_low")
-        if level == "running":
-            level = "degraded"
 
-    if temp_c is not None and temp_c > 80:
-        alerts.append("temp_high")
-        if level == "running":
-            level = "degraded"
-
-    return level, alerts
+def _derive_status_level(warnings: List[str]) -> str:
+    """Derive status level from warnings."""
+    if "camera_offline" in warnings:
+        return "offline"
+    elif warnings:
+        return "degraded"
+    return "running"
 
 
 @router.get("/health")
@@ -63,6 +75,36 @@ def stats_summary():
     db_path = cfg["storage"]["local_database_path"]
     direction_labels = (cfg.get("counting", {}) or {}).get("direction_labels")
     return StatsService(db_path=db_path, direction_labels=direction_labels).get_summary()
+
+
+@router.get("/stats/by-class")
+@router_v1.get("/stats/by-class")
+def stats_by_class(start_ts: Optional[float] = None, end_ts: Optional[float] = None):
+    """
+    Get count statistics broken down by object class (modal split analysis).
+    
+    Query parameters:
+    - start_ts: Unix timestamp for start of time range (default: 24 hours ago)
+    - end_ts: Unix timestamp for end of time range (default: now)
+    
+    Returns:
+    - total: total count in time range
+    - by_class: count per class {"car": 120, "bicycle": 15, "person": 8, ...}
+    - by_class_and_direction: nested breakdown {"car": {"A_TO_B": 65, "B_TO_A": 55}, ...}
+    - unclassified: count of detections with no class (from bgsub backend)
+    - time_range: {start, end}
+    
+    Note: Multi-class detection requires detection.backend='yolo' or 'hailo'.
+    Background subtraction (bgsub) produces unclassified detections.
+    """
+    cfg = ConfigService.load_effective_config()
+    db_path = cfg["storage"]["local_database_path"]
+    direction_labels = (cfg.get("counting", {}) or {}).get("direction_labels")
+    
+    return StatsService(db_path=db_path, direction_labels=direction_labels).get_counts_by_class(
+        start_time=start_ts,
+        end_time=end_ts
+    )
 
 
 @router.get("/status")
@@ -99,11 +141,12 @@ def status():
     disk = HealthService.disk_usage(os.path.dirname(db_path) or ".")
     temp_c = HealthService.read_cpu_temp_c()
 
-    level, alerts = _derive_status(last_frame_age, disk.get("pct_free"), temp_c)
+    warnings = _compute_warnings(last_frame_age, disk.get("pct_free"), temp_c)
+    level = _derive_status_level(warnings)
 
     return {
         "status": level,
-        "alerts": alerts,
+        "alerts": warnings,
         "last_frame_age": last_frame_age,
         "fps": fps,
         "uptime_seconds": int(uptime) if uptime is not None else None,
@@ -115,40 +158,6 @@ def status():
     }
 
 
-def _compute_warnings(
-    last_frame_age_s: Optional[float],
-    disk_free_pct: Optional[float],
-    cpu_temp_c: Optional[float],
-) -> list[str]:
-    """
-    Compute warning flags for compact status endpoint.
-    
-    Thresholds:
-    - camera_stale: last_frame_age_s > 2
-    - camera_offline: last_frame_age_s > 10
-    - disk_low: disk_free_pct < 10
-    - temp_high: cpu_temp_c > 80
-    """
-    warnings = []
-    
-    if last_frame_age_s is not None:
-        if last_frame_age_s > 10:
-            warnings.append("camera_offline")
-        elif last_frame_age_s > 2:
-            warnings.append("camera_stale")
-    else:
-        # No frame timestamp means camera never started
-        warnings.append("camera_offline")
-    
-    if disk_free_pct is not None and disk_free_pct < 10:
-        warnings.append("disk_low")
-    
-    if cpu_temp_c is not None and cpu_temp_c > 80:
-        warnings.append("temp_high")
-    
-    return warnings
-
-
 def _get_today_start_timestamp() -> float:
     """Get Unix timestamp for start of today (local time)."""
     from datetime import datetime
@@ -157,7 +166,7 @@ def _get_today_start_timestamp() -> float:
     return today_start.timestamp()
 
 
-@router.get("/api/status", response_model=CompactStatusResponse)
+@router.get("/status/compact", response_model=CompactStatusResponse)
 @router_v1.get("/status", response_model=CompactStatusResponse)
 def compact_status():
     """
@@ -434,8 +443,10 @@ def set_calibration(req: CalibrationRequest):
 @router.get("/camera/live.mjpg")
 def camera_live_stream(fps: int = 5):
     """
-    Stream MJPEG frames from the shared state (populated by the detector loop).
-    Applies calibration transforms so the preview matches runtime processing.
+    Stream MJPEG frames from the shared state (populated by the pipeline engine).
+    
+    Transforms (rotate, flip, swap_rb) are already applied by the observation layer,
+    so this endpoint just encodes and streams the frames.
     """
     fps = max(1, min(30, int(fps)))
     delay = 1.0 / fps
@@ -446,28 +457,6 @@ def camera_live_stream(fps: int = 5):
             if frame is None:
                 time.sleep(0.1)
                 continue
-
-            cfg = state.get_config_copy() or {}
-            cam_cfg = (cfg.get("camera", {}) or {})
-            rotate = int(cam_cfg.get("rotate", 0) or 0)
-            flip_h = bool(cam_cfg.get("flip_horizontal", False))
-            flip_v = bool(cam_cfg.get("flip_vertical", False))
-            swap_rb = bool(cam_cfg.get("swap_rb", False))
-
-            if rotate in (90, 180, 270):
-                if rotate == 90:
-                    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                elif rotate == 180:
-                    frame = cv2.rotate(frame, cv2.ROTATE_180)
-                elif rotate == 270:
-                    frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-            if flip_h or flip_v:
-                flip_code = -1 if (flip_h and flip_v) else (1 if flip_h else 0)
-                frame = cv2.flip(frame, flip_code)
-
-            if swap_rb:
-                frame = frame[..., ::-1].copy()
 
             ok, buf = cv2.imencode(".jpg", frame)
             if not ok:

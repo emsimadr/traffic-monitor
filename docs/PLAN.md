@@ -248,14 +248,27 @@ storage:
 - [x] Web interface (FastAPI + React)
 - [ ] Validation procedure documented
 
-### 🔄 Milestone 2 — AI Detection
+### ✅ Milestone 2 — AI Detection
 
 - [x] YOLO backend via Ultralytics (GPU/CPU)
 - [x] Multi-class detection (person, bicycle, car, motorcycle, bus, truck)
 - [x] Configurable detection backend (`bgsub`, `yolo`, `hailo`)
 - [x] Hardware-aware logging (shows GPU name or CPU fallback)
+- [x] Full pipeline integration (detection → tracking → counting → storage)
+- [x] Schema v3 with class metadata (class_id, class_name, confidence, backend)
 - [ ] AI HAT+ (Hailo) backend for Raspberry Pi 5
 - [ ] Improved tracking (ByteTrack-style)
+
+**Detection Backend Capabilities:**
+
+| Backend | Classification | Hardware | Status |
+|---------|---------------|----------|--------|
+| `bgsub` | Single-class (motion blobs) | Any CPU | ✅ Production |
+| `yolo` | 6 classes (person, bicycle, car, motorcycle, bus, truck) | GPU/CPU | ✅ Production |
+| `hailo` | 6 classes (same as yolo) | Hailo NPU (Pi 5) | ⏳ Planned |
+
+All backends preserve class information through tracking → counting → storage.
+Background subtraction produces unclassified detections (`class_id=NULL`, `class_name=NULL`).
 
 ### ⏳ Milestone 3 — Speed Measurement
 
@@ -264,12 +277,16 @@ storage:
 - [ ] Speed distribution statistics
 - [ ] Validation against reference
 
-### ⏳ Milestone 4 — Modal Split Analytics
+### 🔄 Milestone 4 — Modal Split Analytics
 
 - [x] Multi-class detection (via YOLO backend)
-- [ ] Class-specific counting statistics
+- [x] Class metadata stored in database (schema v3)
+- [x] Class-based statistics API (`/api/stats/by-class`)
+- [ ] Frontend display of modal split
+- [ ] Class-specific time-of-day patterns
 - [ ] Modal split reports (vehicles vs pedestrians vs cyclists)
 - [ ] Privacy policy documentation
+- [ ] Validation procedure for class accuracy
 
 ### ⏳ Milestone 5 — Heatmaps
 

@@ -247,11 +247,17 @@ counting:
 
 The system supports multiple detection backends, configurable for different hardware:
 
-| Backend | Hardware | Use Case |
-|---------|----------|----------|
-| `bgsub` | Any CPU | Default, no dependencies, works everywhere |
-| `yolo` | GPU (CUDA) or CPU | YOLO via Ultralytics, best for desktop/dev |
-| `hailo` | Hailo NPU (Pi 5) | YOLO on AI HAT+, best for edge deployment |
+| Backend | Hardware | Classification | Classes Detected | Use Case |
+|---------|----------|----------------|------------------|----------|
+| `bgsub` | Any CPU | ❌ Single-class | Motion blobs (unclassified) | Default, no dependencies, works everywhere |
+| `yolo` | GPU (CUDA) or CPU | ✅ Multi-class | person, bicycle, car, motorcycle, bus, truck | Best for desktop/dev, enables modal split |
+| `hailo` | Hailo NPU (Pi 5) | ✅ Multi-class | person, bicycle, car, motorcycle, bus, truck | Best for edge deployment (not yet implemented) |
+
+**Classification Details:**
+- **Multi-class backends** (`yolo`, `hailo`) preserve object class through the entire pipeline (detection → tracking → counting → storage)
+- **Single-class backend** (`bgsub`) produces unclassified detections with `class_id=NULL` and `class_name=NULL`
+- All count events store `detection_backend` field to track which detector was used
+- Class-based statistics available via `/api/stats/by-class` when using multi-class backends
 
 ### YOLO Detection (GPU/CPU)
 
@@ -354,6 +360,7 @@ sudo systemctl start traffic-monitor
 | `GET /api/status` | Compact status for dashboard polling |
 | `GET /api/health` | System health info |
 | `GET /api/stats/summary` | Count statistics |
+| `GET /api/stats/by-class` | Modal split statistics (by object class) |
 | `GET /api/stats/live` | Real-time stats |
 | `GET /api/config` | Current configuration |
 | `POST /api/config` | Save config overrides |
@@ -361,6 +368,38 @@ sudo systemctl start traffic-monitor
 | `POST /api/calibration` | Save calibration |
 | `GET /api/camera/live.mjpg` | MJPEG video stream |
 | `GET /api/camera/snapshot.jpg` | Single frame snapshot |
+
+### Modal Split Statistics
+
+The `/api/stats/by-class` endpoint provides object class breakdowns for modal split analysis:
+
+```bash
+curl "http://localhost:5000/api/stats/by-class?start_ts=1704067200&end_ts=1704153600"
+```
+
+Returns:
+```json
+{
+  "total": 150,
+  "by_class": {
+    "car": 85,
+    "bicycle": 12,
+    "person": 8,
+    "motorcycle": 5,
+    "bus": 3,
+    "truck": 4,
+    "unclassified": 33
+  },
+  "by_class_and_direction": {
+    "car": {"A_TO_B": 45, "B_TO_A": 40},
+    "bicycle": {"A_TO_B": 8, "B_TO_A": 4}
+  },
+  "unclassified": 33,
+  "time_range": {"start": 1704067200, "end": 1704153600}
+}
+```
+
+**Note:** Multi-class detection requires `detection.backend='yolo'` or `'hailo'`. Background subtraction (`bgsub`) produces unclassified detections.
 
 ## Cloud Sync (Optional)
 
