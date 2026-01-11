@@ -9,8 +9,12 @@ import yaml
 class ConfigService:
     """
     Manages layered config:
-    - config/default.yaml (checked in)
-    - config/config.yaml (local overrides)
+    - config/default.yaml (checked in, universal defaults)
+    - config/config.yaml (deployment-specific overrides)
+    - data/calibration/site.yaml (site-specific calibration)
+    
+    The merge order is: default → config → calibration
+    Calibration overrides config for calibration-specific keys.
     """
 
     DEFAULT_PATH = os.path.join("config", "default.yaml")
@@ -41,9 +45,33 @@ class ConfigService:
 
     @staticmethod
     def load_effective_config() -> Dict[str, Any]:
+        """
+        Load effective configuration with all layers merged.
+        
+        Merge order:
+        1. default.yaml (base defaults)
+        2. config.yaml (deployment overrides)
+        3. site.yaml (calibration overrides)
+        
+        Returns:
+            Merged configuration dict.
+        """
         merged = ConfigService.load_default()
         overrides = ConfigService.load_overrides()
-        return ConfigService._deep_merge(merged, overrides)
+        merged = ConfigService._deep_merge(merged, overrides)
+        
+        # Merge calibration layer (if exists)
+        try:
+            from .calibration_service import CalibrationService
+            calibration = CalibrationService.load()
+            if calibration:
+                merged = CalibrationService.merge_into_config(merged, calibration)
+        except Exception as e:
+            # Calibration is optional, don't fail if it's missing
+            import logging
+            logging.debug(f"No calibration loaded: {e}")
+        
+        return merged
 
     @staticmethod
     def save_overrides(overrides: Dict[str, Any]) -> None:

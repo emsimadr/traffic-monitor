@@ -312,6 +312,94 @@ detection:
 
 No external dependencies. Works on any hardware but doesn't classify objects.
 
+## Configuration Architecture
+
+The system uses a **3-layer configuration architecture** to separate universal defaults, deployment settings, and site-specific calibration:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 1: config/default.yaml (checked in)                  │
+│   Universal defaults, works everywhere                      │
+│   Example: detection thresholds, counting parameters        │
+└─────────────────────────────────────────────────────────────┘
+                            ↓ (overridden by)
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 2: config/config.yaml (gitignored)                   │
+│   Deployment-specific operational settings                  │
+│   Example: camera backend, resolution, fps                  │
+└─────────────────────────────────────────────────────────────┘
+                            ↓ (overridden by)
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 3: data/calibration/site.yaml (gitignored)           │
+│   Site-specific measured geometry                           │
+│   Example: gate line coordinates, camera orientation        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Why 3 Layers?
+
+**Separation of Concerns:**
+- **Configuration** (Layer 1-2): Settings you change operationally (resolution, thresholds)
+- **Calibration** (Layer 3): Geometry you measure once and rarely change (gate coordinates)
+
+**Benefits:**
+- ✅ Clean separation between config and calibration
+- ✅ Calibration managed separately via `/api/calibration` endpoint
+- ✅ Backwards compatible (site.yaml is optional)
+- ✅ Multi-site deployments can share defaults, customize per-site
+
+### Configuration Files
+
+**`config/default.yaml`** (checked in):
+- Universal defaults that work everywhere
+- Detection thresholds, counting parameters, API settings
+- Base configuration shipped with the software
+
+**`config/config.yaml`** (gitignored, optional):
+- Deployment-specific operational settings
+- Camera backend, resolution, detection backend
+- Overrides defaults for this specific deployment
+
+**`data/calibration/site.yaml`** (gitignored, optional):
+- Site-specific measured geometry
+- Gate line coordinates, direction labels
+- Camera orientation (rotate, flip)
+- Overrides config for calibration-specific fields
+
+### Creating Calibration File
+
+**Option 1: Use the web UI**
+1. Access `http://localhost:5000`
+2. Configure gate lines via `/api/calibration` endpoint
+3. File is automatically created at `data/calibration/site.yaml`
+
+**Option 2: Create manually**
+```bash
+cp data/calibration/site.yaml.example data/calibration/site.yaml
+# Edit coordinates to match your camera view
+```
+
+**Option 3: Migrate from existing config.yaml**
+```bash
+python tools/migrate_config_to_calibration.py
+# Extracts calibration data from config.yaml to site.yaml
+# Safe: creates backups before modifying files
+```
+
+### API Endpoints
+
+| Endpoint | Purpose | File Modified |
+|----------|---------|---------------|
+| `GET /api/calibration` | Fetch calibration (gate lines, orientation) | - |
+| `POST /api/calibration` | Save calibration | `data/calibration/site.yaml` |
+| `GET /api/config` | Fetch full effective config | - |
+
+The effective configuration is the deep merge of all 3 layers:
+
+```python
+effective_config = default ← config ← calibration
+```
+
 ## Raspberry Pi Deployment
 
 ### Automated Setup

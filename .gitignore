@@ -30,6 +30,8 @@ MANIFEST
 
 # Project specific
 data/
+# But include calibration examples (templates)
+!data/calibration/*.example
 logs/
 secrets/
 node_modules/

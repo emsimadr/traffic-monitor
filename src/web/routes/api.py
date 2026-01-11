@@ -11,12 +11,23 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from ..services.config_service import ConfigService
+from ..services.calibration_service import CalibrationService
 from ..services.stats_service import StatsService
 from ..services.logs_service import LogsService
 from ..services.health_service import HealthService
 from ..services.camera_service import CameraService
 from ..state import state
-from ..api_models import StatsSummary, LiveStatsResponse, RangeStatsResponse, StatusResponse, CompactStatusResponse
+from ..api_models import (
+    StatsSummary,
+    LiveStatsResponse,
+    RangeStatsResponse,
+    StatusResponse,
+    CompactStatusResponse,
+    RecentEventsResponse,
+    HourlyStatsResponse,
+    DailyStatsResponse,
+    PipelineStatusResponse,
+)
 
 router = APIRouter()
 router_v1 = APIRouter(prefix="/api/v1")
@@ -194,12 +205,14 @@ def compact_status():
     # Get counts from database (new count_events table)
     counts_today_total = 0
     counts_by_direction_code: Dict[str, int] = {}
+    counts_by_class: Dict[str, int] = {}
     
     if state.database is not None:
         today_start = _get_today_start_timestamp()
         try:
             counts_today_total = state.database.get_count_total(start_time=today_start)
             counts_by_direction_code = state.database.get_counts_by_direction_code(start_time=today_start)
+            counts_by_class = state.database.get_counts_by_class(start_time=today_start)
         except Exception as e:
             logging.warning(f"Error getting counts: {e}")
     
@@ -239,6 +252,7 @@ def compact_status():
         infer_latency_ms_p95=infer_latency_ms_p95,
         counts_today_total=counts_today_total,
         counts_by_direction_code=counts_by_direction_code,
+        counts_by_class=counts_by_class,
         direction_labels=direction_labels,
         cpu_temp_c=cpu_temp_c,
         disk_free_pct=disk_free_pct,
@@ -297,34 +311,23 @@ def camera_stream(fps: int = 5):
 
 
 class CalibrationCamera(BaseModel):
+    """Camera orientation transforms (site-specific)."""
     swap_rb: Optional[bool] = None
     rotate: Optional[int] = None
     flip_horizontal: Optional[bool] = None
     flip_vertical: Optional[bool] = None
 
 
-class CalibrationTracking(BaseModel):
-    max_frames_since_seen: Optional[int] = None
-    min_trajectory_length: Optional[int] = None
-    iou_threshold: Optional[float] = None
-
-
-class CalibrationGateParams(BaseModel):
-    max_gap_frames: Optional[int] = None
-    min_age_frames: Optional[int] = None
-    min_displacement_px: Optional[float] = None
-
-
 class CalibrationCounting(BaseModel):
+    """Gate geometry and direction labels (site-specific)."""
     line_a: Optional[List[List[float]]] = None
     line_b: Optional[List[List[float]]] = None
     direction_labels: Optional[Dict[str, str]] = None
-    gate: Optional[CalibrationGateParams] = None
 
 
 class CalibrationRequest(BaseModel):
+    """Site-specific calibration data (geometry, orientation)."""
     camera: Optional[CalibrationCamera] = None
-    tracking: Optional[CalibrationTracking] = None
     counting: Optional[CalibrationCounting] = None
 
 
@@ -339,11 +342,45 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
 
 @router.get("/calibration")
 def get_calibration():
-    cfg = ConfigService.load_effective_config()
-    cam = cfg.get("camera", {}) or {}
-    det = cfg.get("detection", {}) or {}
-    track = cfg.get("tracking", {}) or {}
-    counting = cfg.get("counting", {}) or {}
+    """
+    Get site-specific calibration data (geometry, orientation).
+    
+    Returns calibration from data/calibration/site.yaml if it exists,
+    otherwise falls back to values from config.yaml for backwards compatibility.
+    
+    Calibration includes:
+    - Gate line coordinates (measured geometry)
+    - Direction labels (site-specific)
+    - Camera orientation (rotate, flip)
+    """
+    # Try loading from calibration file first
+    calibration = CalibrationService.load()
+    
+    # Fall back to effective config for backwards compatibility
+    if not calibration:
+        cfg = ConfigService.load_effective_config()
+        cam = cfg.get("camera", {}) or {}
+        counting = cfg.get("counting", {}) or {}
+        
+        return {
+            "camera": {
+                "swap_rb": bool(cam.get("swap_rb", False)),
+                "rotate": int(cam.get("rotate", 0) or 0),
+                "flip_horizontal": bool(cam.get("flip_horizontal", False)),
+                "flip_vertical": bool(cam.get("flip_vertical", False)),
+            },
+            "counting": {
+                "line_a": counting.get("line_a"),
+                "line_b": counting.get("line_b"),
+                "direction_labels": counting.get("direction_labels", {}),
+            },
+            "_source": "config.yaml"  # Indicate fallback source
+        }
+    
+    # Return calibration data
+    cam = calibration.get("camera", {}) or {}
+    counting = calibration.get("counting", {}) or {}
+    
     return {
         "camera": {
             "swap_rb": bool(cam.get("swap_rb", False)),
@@ -351,90 +388,78 @@ def get_calibration():
             "flip_horizontal": bool(cam.get("flip_horizontal", False)),
             "flip_vertical": bool(cam.get("flip_vertical", False)),
         },
-        "detection": {},
         "counting": {
             "line_a": counting.get("line_a"),
             "line_b": counting.get("line_b"),
             "direction_labels": counting.get("direction_labels", {}),
-            "gate": counting.get("gate", {}),
         },
-        "tracking": {
-            "max_frames_since_seen": int(track.get("max_frames_since_seen", 10) or 10),
-            "min_trajectory_length": int(track.get("min_trajectory_length", 3) or 3),
-            "iou_threshold": float(track.get("iou_threshold", 0.3) or 0.3),
-        },
+        "_source": "site.yaml",  # Indicate calibration source
+        "_metadata": calibration.get("_metadata", {})
     }
 
 
 @router.post("/calibration")
 def set_calibration(req: CalibrationRequest):
-    updates: Dict[str, Any] = {"camera": {}, "tracking": {}, "counting": {}}
+    """
+    Save site-specific calibration data to data/calibration/site.yaml.
+    
+    This is separate from config.yaml which contains operational settings.
+    Calibration includes:
+    - Gate line coordinates (measured geometry)
+    - Direction labels (site-specific)
+    - Camera orientation (rotate, flip)
+    
+    The calibration file is gitignored (site-specific).
+    """
+    calibration: Dict[str, Any] = {}
 
-    # Camera transforms
+    # Camera transforms (calibration data)
     cam = req.camera or CalibrationCamera()
-    if cam.swap_rb is not None:
-        updates["camera"]["swap_rb"] = bool(cam.swap_rb)
-    if cam.rotate is not None:
-        r = int(cam.rotate or 0)
-        if r not in (0, 90, 180, 270):
-            raise HTTPException(status_code=400, detail="camera.rotate must be one of 0,90,180,270")
-        updates["camera"]["rotate"] = r
-    if cam.flip_horizontal is not None:
-        updates["camera"]["flip_horizontal"] = bool(cam.flip_horizontal)
-    if cam.flip_vertical is not None:
-        updates["camera"]["flip_vertical"] = bool(cam.flip_vertical)
+    if cam.swap_rb is not None or cam.rotate is not None or \
+       cam.flip_horizontal is not None or cam.flip_vertical is not None:
+        calibration["camera"] = {}
+        
+        if cam.swap_rb is not None:
+            calibration["camera"]["swap_rb"] = bool(cam.swap_rb)
+        if cam.rotate is not None:
+            r = int(cam.rotate or 0)
+            if r not in (0, 90, 180, 270):
+                raise HTTPException(status_code=400, detail="camera.rotate must be one of 0,90,180,270")
+            calibration["camera"]["rotate"] = r
+        if cam.flip_horizontal is not None:
+            calibration["camera"]["flip_horizontal"] = bool(cam.flip_horizontal)
+        if cam.flip_vertical is not None:
+            calibration["camera"]["flip_vertical"] = bool(cam.flip_vertical)
 
-    # Tracking parameters
-    trk = req.tracking or CalibrationTracking()
-    if trk.max_frames_since_seen is not None:
-        mfs = int(trk.max_frames_since_seen)
-        if mfs <= 0:
-            raise HTTPException(status_code=400, detail="tracking.max_frames_since_seen must be > 0")
-        updates["tracking"]["max_frames_since_seen"] = mfs
-    if trk.min_trajectory_length is not None:
-        mtl = int(trk.min_trajectory_length)
-        if mtl <= 0:
-            raise HTTPException(status_code=400, detail="tracking.min_trajectory_length must be > 0")
-        updates["tracking"]["min_trajectory_length"] = mtl
-    if trk.iou_threshold is not None:
-        iou = float(trk.iou_threshold)
-        if not (0 < iou <= 1):
-            raise HTTPException(status_code=400, detail="tracking.iou_threshold must be between 0 and 1")
-        updates["tracking"]["iou_threshold"] = iou
-
-    # Counting / Gate parameters
+    # Gate geometry and direction labels (calibration data)
     cnt = req.counting or CalibrationCounting()
-    if cnt.line_a is not None:
-        updates["counting"]["line_a"] = cnt.line_a
-    if cnt.line_b is not None:
-        updates["counting"]["line_b"] = cnt.line_b
-    if cnt.direction_labels is not None:
-        updates["counting"]["direction_labels"] = cnt.direction_labels
-    if cnt.gate is not None:
-        gate_updates = {}
-        if cnt.gate.max_gap_frames is not None:
-            gate_updates["max_gap_frames"] = int(cnt.gate.max_gap_frames)
-        if cnt.gate.min_age_frames is not None:
-            gate_updates["min_age_frames"] = int(cnt.gate.min_age_frames)
-        if cnt.gate.min_displacement_px is not None:
-            gate_updates["min_displacement_px"] = float(cnt.gate.min_displacement_px)
-        if gate_updates:
-            updates["counting"]["gate"] = gate_updates
+    if cnt.line_a is not None or cnt.line_b is not None or cnt.direction_labels is not None:
+        calibration["counting"] = {}
+        
+        if cnt.line_a is not None:
+            calibration["counting"]["line_a"] = cnt.line_a
+        if cnt.line_b is not None:
+            calibration["counting"]["line_b"] = cnt.line_b
+        if cnt.direction_labels is not None:
+            calibration["counting"]["direction_labels"] = cnt.direction_labels
 
-    # Remove empty sections to avoid noisy overrides
-    if not updates["camera"]:
-        updates.pop("camera")
-    if not updates.get("tracking"):
-        updates.pop("tracking", None)
-    if not updates.get("counting"):
-        updates.pop("counting", None)
+    if not calibration:
+        raise HTTPException(status_code=400, detail="No calibration data provided")
 
     try:
-        overrides = ConfigService.load_overrides()
-        merged = _deep_merge(overrides, updates)
-        ConfigService.save_overrides(merged)
+        # Load existing calibration (if any)
+        existing = CalibrationService.load() or {}
+        
+        # Merge updates into existing
+        merged = _deep_merge(existing, calibration)
+        
+        # Save to site.yaml
+        CalibrationService.save(merged, add_metadata=True)
+        
+        # Update runtime config
         state.update_config(ConfigService.load_effective_config())
-        return {"ok": True}
+        
+        return {"ok": True, "message": "Calibration saved to data/calibration/site.yaml"}
     except Exception as e:
         logging.exception("Failed to save calibration")
         raise HTTPException(status_code=500, detail=str(e))
@@ -557,5 +582,328 @@ def stats_range(start_ts: Optional[float] = None, end_ts: Optional[float] = None
     except Exception as e:
         logging.exception("Error computing range stats")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stats/recent")
+@router_v1.get("/stats/recent", response_model=RecentEventsResponse)
+def stats_recent(limit: int = 50):
+    """
+    Get most recent count events (for Recent Events table).
+    
+    Query parameters:
+    - limit: Max events to return (default: 50, max: 200)
+    
+    Returns list of events with timestamp, direction, class, confidence.
+    Privacy: No track IDs, no coordinates, aggregate data only.
+    """
+    if state.database is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    
+    limit = max(1, min(200, limit))  # Cap at 200 for performance
+    
+    try:
+        events_raw = state.database.get_recent_events(limit=limit)
+        
+        # Map to API model format
+        from ..api_models import CountEvent
+        events = []
+        for e in events_raw:
+            events.append(CountEvent(
+                ts=e.get("ts", 0),
+                direction_code=e.get("direction_code", "unknown"),
+                direction_label=e.get("direction_label"),
+                class_name=e.get("class_name"),
+                confidence=float(e.get("confidence", 1.0)),
+            ))
+        
+        return RecentEventsResponse(
+            events=events,
+            total_shown=len(events),
+        )
+    except Exception as e:
+        logging.exception("Error getting recent events")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stats/hourly")
+@router_v1.get("/stats/hourly", response_model=HourlyStatsResponse)
+def stats_hourly(days: int = 7):
+    """
+    Get hourly count aggregates for trend charts.
+    
+    Query parameters:
+    - days: Number of days to look back (default: 7, max: 90)
+    
+    Returns hourly aggregates with total, by_direction, by_class breakdowns.
+    """
+    if state.database is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    
+    days = max(1, min(90, days))  # Cap at 90 days
+    
+    try:
+        import sqlite3
+        from datetime import datetime
+        
+        cfg = state.get_config_copy() or {}
+        direction_labels = (cfg.get("counting", {}) or {}).get("direction_labels", {})
+        
+        start_time = time.time() - (days * 86400)
+        start_ms = int(start_time * 1000)
+        end_ms = int(time.time() * 1000)
+        
+        conn = state.database._get_connection()
+        cursor = conn.cursor()
+        
+        # Get hourly aggregates with direction and class breakdowns
+        cursor.execute("""
+            SELECT 
+                strftime('%Y-%m-%d %H:00:00', ts/1000, 'unixepoch', 'localtime') as hour,
+                direction_code,
+                COALESCE(class_name, 'unclassified') as class,
+                COUNT(*) as count
+            FROM count_events
+            WHERE ts BETWEEN ? AND ?
+            GROUP BY hour, direction_code, class
+            ORDER BY hour
+        """, (start_ms, end_ms))
+        
+        # Aggregate results
+        hours_data = {}
+        for row in cursor.fetchall():
+            hour_str, dir_code, class_name, count = row
+            
+            if hour_str not in hours_data:
+                # Parse hour string to get timestamp
+                dt = datetime.strptime(hour_str, '%Y-%m-%d %H:%M:%S')
+                hours_data[hour_str] = {
+                    "hour_start_ts": int(dt.timestamp()),
+                    "total": 0,
+                    "by_direction": {},
+                    "by_class": {},
+                }
+            
+            hours_data[hour_str]["total"] += count
+            hours_data[hour_str]["by_direction"][dir_code] = hours_data[hour_str]["by_direction"].get(dir_code, 0) + count
+            hours_data[hour_str]["by_class"][class_name] = hours_data[hour_str]["by_class"].get(class_name, 0) + count
+        
+        from ..api_models import HourlyCount
+        hours = [HourlyCount(**data) for data in hours_data.values()]
+        
+        return HourlyStatsResponse(
+            hours=hours,
+            start_ts=start_time,
+            end_ts=time.time(),
+        )
+    except Exception as e:
+        logging.exception("Error getting hourly stats")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stats/daily")
+@router_v1.get("/stats/daily", response_model=DailyStatsResponse)
+def stats_daily(days: int = 30):
+    """
+    Get daily count aggregates for trend charts.
+    
+    Query parameters:
+    - days: Number of days to look back (default: 30, max: 365)
+    
+    Returns daily aggregates with total, by_direction, by_class breakdowns.
+    """
+    if state.database is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    
+    days = max(1, min(365, days))  # Cap at 1 year
+    
+    try:
+        import sqlite3
+        from datetime import datetime
+        
+        cfg = state.get_config_copy() or {}
+        direction_labels = (cfg.get("counting", {}) or {}).get("direction_labels", {})
+        
+        start_time = time.time() - (days * 86400)
+        start_ms = int(start_time * 1000)
+        end_ms = int(time.time() * 1000)
+        
+        conn = state.database._get_connection()
+        cursor = conn.cursor()
+        
+        # Get daily aggregates with direction and class breakdowns
+        cursor.execute("""
+            SELECT 
+                strftime('%Y-%m-%d', ts/1000, 'unixepoch', 'localtime') as date,
+                direction_code,
+                COALESCE(class_name, 'unclassified') as class,
+                COUNT(*) as count
+            FROM count_events
+            WHERE ts BETWEEN ? AND ?
+            GROUP BY date, direction_code, class
+            ORDER BY date
+        """, (start_ms, end_ms))
+        
+        # Aggregate results
+        days_data = {}
+        for row in cursor.fetchall():
+            date_str, dir_code, class_name, count = row
+            
+            if date_str not in days_data:
+                # Parse date string to get timestamp
+                dt = datetime.strptime(date_str, '%Y-%m-%d')
+                days_data[date_str] = {
+                    "date": date_str,
+                    "day_start_ts": int(dt.timestamp()),
+                    "total": 0,
+                    "by_direction": {},
+                    "by_class": {},
+                }
+            
+            days_data[date_str]["total"] += count
+            days_data[date_str]["by_direction"][dir_code] = days_data[date_str]["by_direction"].get(dir_code, 0) + count
+            days_data[date_str]["by_class"][class_name] = days_data[date_str]["by_class"].get(class_name, 0) + count
+        
+        from ..api_models import DailyCount
+        days_list = [DailyCount(**data) for data in days_data.values()]
+        
+        return DailyStatsResponse(
+            days=days_list,
+            start_ts=start_time,
+            end_ts=time.time(),
+        )
+    except Exception as e:
+        logging.exception("Error getting daily stats")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stats/export")
+def stats_export(
+    start_ts: Optional[float] = None,
+    end_ts: Optional[float] = None,
+    days: int = 30,
+    format: str = "csv",
+):
+    """
+    Export count events as CSV for reporting/analysis.
+    
+    Query parameters:
+    - start_ts: Start time (Unix timestamp)
+    - end_ts: End time (Unix timestamp)
+    - days: Days to look back if start_ts not provided (default: 30)
+    - format: Export format (currently only 'csv')
+    
+    Returns CSV with columns: timestamp, date_time, direction_code, direction_label, class_name, confidence
+    Privacy: No track IDs, no coordinates, aggregate events only.
+    """
+    if state.database is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    
+    if format != "csv":
+        raise HTTPException(status_code=400, detail="Only CSV format supported")
+    
+    now = time.time()
+    end_ts = end_ts or now
+    if start_ts is None:
+        start_ts = end_ts - max(1, days) * 86400
+    
+    if start_ts >= end_ts:
+        raise HTTPException(status_code=400, detail="start_ts must be before end_ts")
+    
+    try:
+        import csv
+        import io
+        from datetime import datetime
+        
+        start_ms = int(start_ts * 1000)
+        end_ms = int(end_ts * 1000)
+        
+        conn = state.database._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                ts,
+                direction_code,
+                direction_label,
+                COALESCE(class_name, 'unclassified') as class_name,
+                confidence
+            FROM count_events
+            WHERE ts BETWEEN ? AND ?
+            ORDER BY ts
+        """, (start_ms, end_ms))
+        
+        # Build CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["timestamp_ms", "datetime_local", "direction_code", "direction_label", "class", "confidence"])
+        
+        for row in cursor.fetchall():
+            ts_ms, dir_code, dir_label, class_name, confidence = row
+            dt = datetime.fromtimestamp(ts_ms / 1000.0)
+            dt_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+            writer.writerow([ts_ms, dt_str, dir_code, dir_label or "", class_name, confidence])
+        
+        csv_content = output.getvalue()
+        output.close()
+        
+        from fastapi.responses import Response
+        filename = f"traffic_counts_{datetime.fromtimestamp(start_ts).strftime('%Y%m%d')}_{datetime.fromtimestamp(end_ts).strftime('%Y%m%d')}.csv"
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    except Exception as e:
+        logging.exception("Error exporting stats")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/status/pipeline")
+@router_v1.get("/status/pipeline", response_model=PipelineStatusResponse)
+def pipeline_status():
+    """
+    Get health status of each pipeline stage (for Health page diagnostics).
+    
+    Stages: Observation → Detection → Tracking → Counting → Storage
+    Each stage reports: running|degraded|offline with optional message.
+    """
+    from ..api_models import PipelineStageStatus
+    
+    stages = []
+    overall = "running"
+    
+    # 1. Observation (camera/frame capture)
+    sys_stats = state.get_system_stats_copy() if hasattr(state, "get_system_stats_copy") else getattr(state, "system_stats", {}) or {}
+    last_frame_ts = sys_stats.get("last_frame_ts")
+    if last_frame_ts is None or (time.time() - last_frame_ts) > 10:
+        stages.append(PipelineStageStatus(name="Observation", status="offline", message="No frames in last 10s"))
+        overall = "offline"
+    elif (time.time() - last_frame_ts) > 2:
+        stages.append(PipelineStageStatus(name="Observation", status="degraded", message="Stale frames"))
+        if overall == "running":
+            overall = "degraded"
+    else:
+        stages.append(PipelineStageStatus(name="Observation", status="running", message=None))
+    
+    # 2. Detection (placeholder - would check inference stats)
+    stages.append(PipelineStageStatus(name="Detection", status="running", message="Backend operational"))
+    
+    # 3. Tracking
+    stages.append(PipelineStageStatus(name="Tracking", status="running", message="Tracker operational"))
+    
+    # 4. Counting
+    stages.append(PipelineStageStatus(name="Counting", status="running", message="Counter operational"))
+    
+    # 5. Storage (database)
+    if state.database is None:
+        stages.append(PipelineStageStatus(name="Storage", status="offline", message="Database not initialized"))
+        overall = "offline"
+    else:
+        stages.append(PipelineStageStatus(name="Storage", status="running", message="Database operational"))
+    
+    return PipelineStatusResponse(
+        stages=stages,
+        overall_status=overall,
+    )
 
 

@@ -163,50 +163,97 @@ Schema versioning via `schema_meta` table. Current version: 2.
 
 ## Configuration
 
-### Config layering
+### 3-Layer Architecture (Implemented)
 
-1. `config/default.yaml` - Base defaults (do not edit)
-2. `config/config.yaml` - Local overrides
-3. `config/cloud_config.yaml` - GCP settings (optional)
+The system uses a **3-layer configuration architecture** to separate universal defaults, deployment settings, and site-specific calibration:
 
-### Key settings
+**Layer 1: `config/default.yaml`** (checked in)
+- Universal defaults that work everywhere
+- Detection thresholds, counting parameters, API settings
+- Base configuration shipped with the software
+- **Do not edit**: Override in higher layers
+
+**Layer 2: `config/config.yaml`** (gitignored, optional)
+- Deployment-specific operational settings
+- Camera backend, resolution, detection backend
+- Overrides defaults for this specific deployment
+
+**Layer 3: `data/calibration/site.yaml`** (gitignored, optional)
+- Site-specific measured geometry
+- Gate line coordinates, direction labels
+- Camera orientation (rotate, flip)
+- Overrides config for calibration-specific fields
+
+**Merge order**: `default ← config ← calibration`
+
+### Rationale
+
+**Separation of Concerns:**
+- **Configuration** (Layer 1-2): Settings you change operationally
+- **Calibration** (Layer 3): Geometry you measure once and rarely change
+
+**Benefits:**
+- ✅ Clean separation between config and calibration
+- ✅ Calibration managed separately via `/api/calibration` endpoint
+- ✅ Backwards compatible (site.yaml is optional)
+- ✅ Multi-site deployments can share defaults, customize per-site
+- ✅ Gate coordinates are no longer "configuration" — they're calibration
+
+### Migration
+
+For existing deployments with gate coordinates in `config.yaml`:
+
+```bash
+python tools/migrate_config_to_calibration.py
+```
+
+This tool:
+1. Extracts calibration data from `config.yaml`
+2. Creates `data/calibration/site.yaml`
+3. Removes calibration data from `config.yaml` (with backup)
+
+### Example: site.yaml
 
 ```yaml
-camera:
-  backend: "opencv"  # or "picamera2"
-  device_id: 0       # or RTSP URL
-  resolution: [1280, 720]
-  fps: 30
+# data/calibration/site.yaml
+# Site-specific measured geometry
 
 counting:
-  mode: "gate"       # "gate" (default) or "line"
   line_a: [[0.2, 1.0], [0.0, 0.0]]
   line_b: [[0.8, 1.0], [1.0, 0.0]]
   direction_labels:
     a_to_b: "northbound"
     b_to_a: "southbound"
-  max_gap_frames: 30
-  min_age_frames: 3
-  min_displacement_px: 15
+
+camera:
+  rotate: 0
+  flip_horizontal: false
+```
+
+### Example: config.yaml
+
+```yaml
+# config/config.yaml
+# Deployment-specific operational settings
+
+camera:
+  backend: "opencv"
+  device_id: 0
+  resolution: [1280, 720]
+  fps: 30
 
 detection:
-  backend: "yolo"    # "bgsub", "yolo", or "hailo"
-  min_contour_area: 1000  # bgsub only
+  backend: "yolo"
   yolo:
     model: "yolov8s.pt"
-    conf_threshold: 0.35
-    classes: [0, 1, 2, 3, 5, 7]  # person, bicycle, car, motorcycle, bus, truck
-    class_name_overrides:
-      0: "person"
-      1: "bicycle"
-      2: "car"
-      3: "motorcycle"
-      5: "bus"
-      7: "truck"
-
-storage:
-  local_database_path: "data/traffic.db"
-  retention_days: 30
+    conf_threshold: 0.25
+    classes: [0, 1, 2, 3, 5, 7]
+    class_thresholds:
+      0: 0.20   # person - LOW (critical for safety)
+      1: 0.25   # bicycle - LOW (modal split)
+      2: 0.40   # car - HIGH (large, easy)
+      5: 0.45   # bus - HIGH
+      7: 0.45   # truck - HIGH
 ```
 
 ---

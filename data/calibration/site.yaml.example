@@ -1,0 +1,36 @@
+# Site-specific calibration data
+# This file contains measured geometry and orientation specific to this deployment.
+# Copy to site.yaml and customize for your installation.
+
+# Metadata (automatically managed)
+_metadata:
+  created: "2026-01-11T00:00:00"
+  last_updated: "2026-01-11T00:00:00"
+  site_name: "Residential Street Deployment"
+  notes: "Camera mounted on garage, facing south"
+
+# Gate line coordinates (measured once, rarely changed)
+# Coordinates are in ratios [0-1] of frame dimensions
+counting:
+  line_a: [[0.504, 0.315], [0.378, 0.755]]
+  line_b: [[0.558, 0.321], [0.443, 0.763]]
+  
+  # Direction labels (site-specific)
+  direction_labels:
+    a_to_b: "southbound"
+    b_to_a: "northbound"
+
+# Camera orientation (calibration data)
+camera:
+  rotate: 0             # 0, 90, 180, or 270
+  flip_horizontal: false
+  flip_vertical: false
+  swap_rb: false        # Fix color channel swap
+
+# Speed calibration (future)
+# speed:
+#   pixels_per_meter: 42.5
+#   measurement_zone: [[0.3, 0.4], [0.7, 0.6]]
+#   calibration_method: "reference_vehicle"
+#   calibration_date: "2026-01-15"
+
