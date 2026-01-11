@@ -1,9 +1,25 @@
 camera:
+  backend: "opencv"
+  secrets_file: "secrets/camera_secrets.yaml"
+  resolution: [1280, 720]
+  fps: 30
   swap_rb: false
   rotate: 0
   flip_horizontal: false
   flip_vertical: false
-detection: {}
+detection:
+  backend: "yolo"
+  yolo:
+    model: "yolov8s.pt"
+    conf_threshold: 0.35
+    classes: [0, 1, 2, 3, 5, 7]
+    class_name_overrides:
+      0: "person"
+      1: "bicycle"
+      2: "car"
+      3: "motorcycle"
+      5: "bus"
+      7: "truck"
 counting:
   mode: "gate"
   line_a:

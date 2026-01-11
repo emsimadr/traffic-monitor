@@ -30,18 +30,42 @@ camera:
 
 # Detection settings
 detection:
-  # backend: "bgsub" (default, classical CV) or "yolo" (AI-based; requires optional deps)
+  # backend options:
+  #   - "bgsub": Background subtraction (default, no dependencies, works everywhere)
+  #   - "yolo": YOLO via Ultralytics (requires: pip install ultralytics; uses GPU if available)
+  #   - "hailo": YOLO on Hailo AI HAT+ (Pi 5 only; requires: apt install hailo-all)
   backend: "bgsub"
-  min_contour_area: 1000         # Minimum contour area for vehicle detection
+  min_contour_area: 1000         # Minimum contour area for vehicle detection (bgsub only)
   detect_shadows: true           # Whether to detect shadows in background subtraction
 
-  # YOLO settings (used only when detection.backend == "yolo")
+  # YOLO settings (used when detection.backend is "yolo" or "hailo")
   yolo:
-    model: ""                    # e.g., "yolov8n.pt" (Ultralytics) or a local path
-    conf_threshold: 0.25
-    iou_threshold: 0.45
-    # classes: [2, 3, 5, 7]      # optional filter by class IDs (model-dependent)
-    # class_name_overrides: {}   # optional mapping of class_id -> display name
+    # Model path: Ultralytics model name or path to .pt file
+    # Recommended: "yolov8s.pt" (good accuracy/speed balance)
+    # Alternatives: "yolov8n.pt" (faster), "yolov8m.pt" (more accurate)
+    model: "yolov8s.pt"
+    conf_threshold: 0.35         # Confidence threshold (0.35 recommended for traffic)
+    iou_threshold: 0.45          # NMS IoU threshold
+    
+    # Class filtering: COCO class IDs for neighborhood traffic
+    # 0=person, 1=bicycle, 2=car, 3=motorcycle, 5=bus, 7=truck
+    # Detect all relevant classes; counting can filter further
+    classes: [0, 1, 2, 3, 5, 7]
+    
+    # Human-readable names for detected classes
+    class_name_overrides:
+      0: "person"
+      1: "bicycle"
+      2: "car"
+      3: "motorcycle"
+      5: "bus"
+      7: "truck"
+
+  # Hailo settings (used only when detection.backend == "hailo")
+  # Requires Raspberry Pi 5 with AI HAT+ and hailo-all package installed
+  # hailo:
+  #   hef_path: "data/artifacts/yolov8s.hef"  # Compiled model for Hailo
+  #   input_size: [640, 640]                   # Model input dimensions
 
 # Counting strategy
 counting:

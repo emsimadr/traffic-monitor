@@ -23,6 +23,7 @@ import numpy as np
 
 from models.frame import FrameData
 from .base import ObservationSource, ObservationConfig
+from .rtsp_utils import sanitize_url
 
 
 @dataclass
@@ -131,7 +132,7 @@ class OpenCVSource(ObservationSource):
         
         logging.info(
             f"OpenCVSource opened: source_id={self.source_id}, "
-            f"device={self.device_id}, resolution={self._opencv_config.resolution}"
+            f"device={sanitize_url(self.device_id)}, resolution={self._opencv_config.resolution}"
         )
 
     def _initialize(self, retry_count: int = 0) -> None:
@@ -159,10 +160,10 @@ class OpenCVSource(ObservationSource):
 
         if not self._cap.isOpened():
             if retry_count < self._opencv_config.max_retries - 1:
-                logging.warning(f"Failed to open device {self.device_id}, retrying...")
+                logging.warning(f"Failed to open device {sanitize_url(self.device_id)}, retrying...")
                 return self._initialize(retry_count + 1)
             raise RuntimeError(
-                f"Failed to open device {self.device_id} after "
+                f"Failed to open device {sanitize_url(self.device_id)} after "
                 f"{self._opencv_config.max_retries} attempts"
             )
 

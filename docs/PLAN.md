@@ -42,8 +42,8 @@ We need **credible quantitative evidence** (counts, patterns, and eventually spe
 |-------|--------|----------------|
 | **Observation** | `src/observation/` | Frame capture from cameras/files |
 | **Pipeline** | `src/pipeline/` | Main loop: Detect → Track → Measure → Persist |
-| **Detection** | `src/detection/` | BgSub or YOLO-based detection |
-| **Tracking** | `src/detection/tracker.py` | IoU-based multi-object tracking |
+| **Detection** | `src/detection/`, `src/inference/` | Pluggable backends: BgSub, YOLO (GPU/CPU), Hailo (NPU) |
+| **Tracking** | `src/tracking/tracker.py` | IoU-based multi-object tracking |
 | **Counting** | `src/algorithms/counting/` | Pluggable strategies (Gate, Line) |
 | **Storage** | `src/storage/` | SQLite with count_events table |
 | **Web** | `src/web/` | FastAPI + React frontend |
@@ -190,8 +190,19 @@ counting:
   min_displacement_px: 15
 
 detection:
-  backend: "bgsub"   # or "yolo"
-  min_contour_area: 1000
+  backend: "yolo"    # "bgsub", "yolo", or "hailo"
+  min_contour_area: 1000  # bgsub only
+  yolo:
+    model: "yolov8s.pt"
+    conf_threshold: 0.35
+    classes: [0, 1, 2, 3, 5, 7]  # person, bicycle, car, motorcycle, bus, truck
+    class_name_overrides:
+      0: "person"
+      1: "bicycle"
+      2: "car"
+      3: "motorcycle"
+      5: "bus"
+      7: "truck"
 
 storage:
   local_database_path: "data/traffic.db"
@@ -239,9 +250,11 @@ storage:
 
 ### 🔄 Milestone 2 — AI Detection
 
-- [ ] YOLO backend on CPU
-- [ ] AI HAT+ (Hailo) backend
-- [ ] Class-based counting (car/truck/motorcycle)
+- [x] YOLO backend via Ultralytics (GPU/CPU)
+- [x] Multi-class detection (person, bicycle, car, motorcycle, bus, truck)
+- [x] Configurable detection backend (`bgsub`, `yolo`, `hailo`)
+- [x] Hardware-aware logging (shows GPU name or CPU fallback)
+- [ ] AI HAT+ (Hailo) backend for Raspberry Pi 5
 - [ ] Improved tracking (ByteTrack-style)
 
 ### ⏳ Milestone 3 — Speed Measurement
@@ -251,10 +264,11 @@ storage:
 - [ ] Speed distribution statistics
 - [ ] Validation against reference
 
-### ⏳ Milestone 4 — Pedestrian/Bicycle Detection
+### ⏳ Milestone 4 — Modal Split Analytics
 
-- [ ] Multi-class detection
-- [ ] Modal split statistics
+- [x] Multi-class detection (via YOLO backend)
+- [ ] Class-specific counting statistics
+- [ ] Modal split reports (vehicles vs pedestrians vs cyclists)
 - [ ] Privacy policy documentation
 
 ### ⏳ Milestone 5 — Heatmaps
@@ -293,9 +307,23 @@ python src/main.py --config config/config.yaml --display
 # Record video
 python src/main.py --config config/config.yaml --record
 
+# Stop running instance
+python src/main.py --stop
+
+# Replace existing instance (kill + start)
+python src/main.py --config config/config.yaml --kill-existing
+
 # Run tests
 pytest tests/ -v
 ```
+
+### Single Instance Enforcement
+
+The system uses a PID file (`data/traffic_monitor.pid`) to ensure only one instance runs:
+
+- `--stop`: Gracefully stops any running instance
+- `--kill-existing`: Kills existing instance before starting new one
+- Prevents port conflicts and duplicate counting
 
 ### Systemd service
 

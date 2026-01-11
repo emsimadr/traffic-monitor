@@ -87,7 +87,8 @@ traffic-monitor/
 │   ├── observation/           # Frame sources (OpenCV, Picamera2)
 │   ├── pipeline/              # Processing engine + stages
 │   ├── algorithms/counting/   # Counting strategies (Gate, Line)
-│   ├── detection/             # Detection (BgSub, YOLO)
+│   ├── detection/             # Detection (BgSub detector)
+│   ├── inference/             # AI backends (YOLO/GPU, Hailo/NPU)
 │   ├── tracking/              # Object tracking
 │   ├── storage/               # SQLite database
 │   ├── models/                # Data models (FrameData, CountEvent, etc.)
@@ -95,9 +96,8 @@ traffic-monitor/
 │   ├── web/                   # FastAPI + Jinja2 (legacy)
 │   │   ├── routes/            # API routes
 │   │   └── services/          # Business logic
-│   ├── inference/             # YOLO backends
 │   ├── cloud/                 # GCP sync
-│   └── ops/                   # Logging, health
+│   └── ops/                   # Logging, health, process management
 │
 ├── frontend/                   # React frontend
 │   ├── src/
@@ -191,6 +191,20 @@ Access the web interface at: `http://localhost:5000`
 
 - `--display`: Show OpenCV window (for debugging)
 - `--record`: Record video to `output/video/`
+- `--stop`: Stop any running instance and exit
+- `--kill-existing`: Kill existing instance before starting (ensures single instance)
+
+### Process Management
+
+The system enforces single-instance operation via PID file (`data/traffic_monitor.pid`):
+
+```bash
+# Stop a running instance
+python src/main.py --stop
+
+# Replace existing instance
+python src/main.py --config config/config.yaml --kill-existing
+```
 
 ## Counting Strategies
 
@@ -228,6 +242,49 @@ counting:
   mode: "line"
   line_a: [[0.5, 1.0], [0.5, 0.0]]  # Vertical center line
 ```
+
+## Detection Backends
+
+The system supports multiple detection backends, configurable for different hardware:
+
+| Backend | Hardware | Use Case |
+|---------|----------|----------|
+| `bgsub` | Any CPU | Default, no dependencies, works everywhere |
+| `yolo` | GPU (CUDA) or CPU | YOLO via Ultralytics, best for desktop/dev |
+| `hailo` | Hailo NPU (Pi 5) | YOLO on AI HAT+, best for edge deployment |
+
+### YOLO Detection (GPU/CPU)
+
+```yaml
+detection:
+  backend: "yolo"
+  yolo:
+    model: "yolov8s.pt"      # Model file (auto-downloads)
+    conf_threshold: 0.35     # Confidence threshold
+    classes: [0, 1, 2, 3, 5, 7]  # COCO class IDs to detect
+    class_name_overrides:
+      0: "person"
+      1: "bicycle"
+      2: "car"
+      3: "motorcycle"
+      5: "bus"
+      7: "truck"
+```
+
+**Detected classes**: person, bicycle, car, motorcycle, bus, truck (COCO IDs 0, 1, 2, 3, 5, 7)
+
+**Requirements**: `pip install ultralytics` (GPU auto-detected via PyTorch CUDA)
+
+### Background Subtraction (Default)
+
+```yaml
+detection:
+  backend: "bgsub"
+  min_contour_area: 1000
+  detect_shadows: true
+```
+
+No external dependencies. Works on any hardware but doesn't classify objects.
 
 ## Raspberry Pi Deployment
 

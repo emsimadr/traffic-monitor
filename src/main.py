@@ -7,11 +7,14 @@ streaming and statistics.
 
 Usage:
     python src/main.py --config config/config.yaml --display
+    python src/main.py --stop  # Stop running instance
 
 Arguments:
     --config: Path to configuration file
     --display: Enable visual display for debugging
     --record: Record video output
+    --stop: Stop any running instance and exit
+    --kill-existing: Kill any existing instance before starting
 """
 
 import os
@@ -26,14 +29,15 @@ from typing import Dict, Any, Tuple, Optional
 import cv2
 import uvicorn
 
-from detection.tracker import VehicleTracker
 from detection.vehicle import VehicleDetector
 from detection.bgsub_detector import BgSubDetector
+from tracking.tracker import VehicleTracker
 from inference.cpu_backend import UltralyticsCpuBackend, CpuYoloConfig
 from storage.database import Database
 from cloud.sync import CloudSync
 from cloud.utils import check_cloud_config
 from ops.logging import setup_logging
+from ops.process import ensure_single_instance, stop_existing_instance
 from web.app import create_app
 from web.state import state as web_state
 
@@ -50,10 +54,6 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
         else:
             base[k] = v
     return base
-
-
-# Import the shared RTSP credential injection utility
-from observation.rtsp_utils import inject_rtsp_credentials
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -136,12 +136,16 @@ def validate_config(config: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     detection.setdefault('min_contour_area', 1000)
     
     backend = detection.get('backend', 'bgsub')
-    if backend not in ('bgsub', 'yolo'):
-        return False, "detection.backend must be one of: bgsub, yolo"
+    if backend not in ('bgsub', 'yolo', 'hailo'):
+        return False, "detection.backend must be one of: bgsub, yolo, hailo"
     if backend == 'yolo':
         yolo_cfg = detection.get('yolo', {})
         if not yolo_cfg.get('model'):
             return False, "detection.yolo.model is required when detection.backend is 'yolo'"
+    if backend == 'hailo':
+        hailo_cfg = detection.get('hailo', {})
+        if not hailo_cfg.get('hef_path'):
+            return False, "detection.hailo.hef_path is required when detection.backend is 'hailo'"
     
     # Validate storage settings
     storage = config.get('storage', {})
@@ -173,11 +177,23 @@ def main():
                         help='Enable visual display')
     parser.add_argument('--record', action='store_true',
                         help='Record video output')
+    parser.add_argument('--stop', action='store_true',
+                        help='Stop any running instance and exit')
+    parser.add_argument('--kill-existing', action='store_true',
+                        help='Kill any existing instance before starting')
     args = parser.parse_args()
+    
+    # Handle --stop command
+    if args.stop:
+        success = stop_existing_instance()
+        sys.exit(0 if success else 1)
+    
+    # Ensure single instance
+    if not ensure_single_instance(kill_existing=args.kill_existing):
+        sys.exit(1)
     
     # Load and validate configuration
     config = load_config(args.config)
-    inject_rtsp_credentials(config["camera"])
     
     is_valid, error_msg = validate_config(config)
     if not is_valid:
@@ -235,6 +251,8 @@ def main():
         
         # Initialize detector
         detector_backend = config['detection'].get('backend', 'bgsub')
+        logging.info(f"Detection backend: {detector_backend}")
+        
         if detector_backend == 'yolo':
             ycfg = config['detection'].get('yolo', {})
             detector = UltralyticsCpuBackend(
@@ -246,7 +264,27 @@ def main():
                     class_name_overrides=ycfg.get('class_name_overrides'),
                 )
             )
+            # Log device info (GPU vs CPU)
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    gpu_name = torch.cuda.get_device_name(0)
+                    logging.info(f"YOLO inference device: GPU ({gpu_name})")
+                else:
+                    logging.info("YOLO inference device: CPU (CUDA not available)")
+            except ImportError:
+                logging.info("YOLO inference device: CPU (PyTorch not installed)")
+        elif detector_backend == 'hailo':
+            # Phase 2: Hailo AI HAT+ backend (not yet implemented)
+            # Will be implemented in src/inference/hailo_backend.py
+            raise NotImplementedError(
+                "Hailo backend is not yet implemented. "
+                "Use detection.backend='yolo' for GPU dev, or 'bgsub' for CPU fallback. "
+                "See PLAN.md Milestone 2 for Hailo integration status."
+            )
         else:
+            # Default: background subtraction (works everywhere, no dependencies)
+            logging.info("Using background subtraction (no ML model)")
             vehicle_detector = VehicleDetector(
                 min_contour_area=config['detection']['min_contour_area'],
                 detect_shadows=config['detection'].get('detect_shadows', True)
@@ -268,12 +306,19 @@ def main():
         
         # Start web server in background
         def run_web_app():
-            uvicorn.run(
+            # Use uvicorn.Config/Server to avoid installing signal handlers in the thread,
+            # which can conflict with the main thread and OpenCV on Windows.
+            config = uvicorn.Config(
                 create_app(),
                 host="0.0.0.0",
                 port=5000,
                 log_level="warning",
+                loop="asyncio",
             )
+            server = uvicorn.Server(config)
+            # Disable signal handlers to allow running in a thread
+            server.install_signal_handlers = lambda: None
+            server.run()
             
         web_thread = threading.Thread(target=run_web_app, daemon=True)
         web_thread.start()

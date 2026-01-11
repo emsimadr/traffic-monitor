@@ -9,10 +9,29 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict
+import re
+from typing import Any, Dict, Union
 from urllib.parse import urlparse, urlunparse
 
 import yaml
+
+
+def sanitize_url(url: Union[str, int]) -> str:
+    """
+    Sanitize a URL by masking any embedded credentials.
+    
+    Converts: rtsp://user:password@host/path
+    To:       rtsp://****:****@host/path
+    
+    Safe for logging. Returns non-string inputs unchanged.
+    """
+    if not isinstance(url, str):
+        return str(url)
+    
+    # Match credentials in URLs: scheme://user:pass@host
+    # Replace user:pass with ****:****
+    pattern = r'(://)[^:]+:[^@]+(@)'
+    return re.sub(pattern, r'\1****:****\2', url)
 
 
 def inject_rtsp_credentials(camera_cfg: Dict[str, Any]) -> None:
