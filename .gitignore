@@ -34,6 +34,10 @@ logs/
 secrets/
 node_modules/
 
+# Model files (auto-downloaded on first run)
+*.pt
+*.hef
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
