@@ -1,6 +1,6 @@
 # Neighborhood Traffic Monitoring System — Plan
 
-This `PLAN.md` is the living roadmap for building a **privacy-respecting, evidence-grade** traffic monitoring system that runs on an edge device (e.g., Raspberry Pi) and optionally syncs summarized results to Google Cloud.
+This `PLAN.md` is the living roadmap for building an **evidence-grade** traffic monitoring system that runs on an edge device (e.g., Raspberry Pi) and optionally syncs results to Google Cloud for analysis and reporting.
 
 ---
 
@@ -18,19 +18,19 @@ This `PLAN.md` is the living roadmap for building a **privacy-respecting, eviden
 **In scope (near term):**
 
 - Vehicle counting with direction and time-of-day patterns.
+- Multi-class detection for modal split analysis (cars, bikes, pedestrians).
 - Speed measurement with a documented, repeatable calibration/validation process.
-- Privacy-first summaries suitable for sharing externally.
+- Aggregated summaries suitable for advocacy and sharing externally.
 - Heatmaps that show where traffic actually flows over time.
 
 **Explicit non-goals:**
 
-- Identifying individuals, license plates, or faces.
-- Real-time enforcement or "catching" specific drivers.
-- Storing continuous raw video long-term (short validation clips only, by default).
+- Real-time enforcement or automated ticketing.
+- Storing continuous raw video long-term (disk space constraints).
 
 ### Why it matters
 
-We need **credible quantitative evidence** (counts, patterns, and eventually speeds and conflicts) to support traffic calming advocacy and to withstand scrutiny from municipal stakeholders—without turning the project into surveillance.
+We need **credible quantitative evidence** (counts, patterns, speeds, and modal splits) to support traffic calming advocacy and to withstand scrutiny from municipal stakeholders. The system prioritizes data quality, reliability, and actionable insights over all other concerns.
 
 ---
 
@@ -285,8 +285,8 @@ Background subtraction produces unclassified detections (`class_id=NULL`, `class
 - [ ] Frontend display of modal split
 - [ ] Class-specific time-of-day patterns
 - [ ] Modal split reports (vehicles vs pedestrians vs cyclists)
-- [ ] Privacy policy documentation
 - [ ] Validation procedure for class accuracy
+- [ ] Time-lapse video generation for visual reports
 
 ### ⏳ Milestone 5 — Heatmaps
 
@@ -413,7 +413,7 @@ class CountEvent:
 | Night degradation | Medium | ROI tuning, IR illumination, accept daylight-only |
 | Network outages | Medium | Local buffering, retry/backoff |
 | Compute limits | Medium | Lower FPS/resolution, ROI cropping |
-| Privacy concerns | High | Aggregates only, minimal retention, transparency |
+| Data accuracy | High | Validation procedure, ground truth comparison |
 | GCP costs | Medium | Partition tables, limit uploads, spend alerts |
 
 ---
@@ -421,9 +421,9 @@ class CountEvent:
 ## Success Metrics
 
 - **Operational**: >95% uptime over 30 days
-- **Data quality**: Repeatable validation, documented error bounds
-- **Advocacy value**: Clear peak-hour patterns, shareable visuals
-- **Privacy**: No identity tracking, minimal video retention
+- **Data quality**: Repeatable validation, documented error bounds, <10% counting error
+- **Advocacy value**: Clear peak-hour patterns, shareable visuals, modal split breakdowns
+- **Cost efficiency**: <$50/month GCP costs for continuous monitoring
 
 ---
 

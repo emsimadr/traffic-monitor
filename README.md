@@ -4,7 +4,7 @@ A hybrid edge-cloud architecture for monitoring and analyzing traffic patterns o
 
 ## Problem Statement
 
-Our residential street has become increasingly dangerous due to high traffic volumes and reckless driving. This project systematically collects and analyzes traffic data to build an evidence-based case for implementing traffic calming measures.
+Residential streets often lack objective data about traffic patterns, volumes, and speeds. This project provides a complete monitoring system to collect and analyze traffic data for advocacy, planning, and traffic calming initiatives. The system produces credible, evidence-grade data suitable for presentations to municipal authorities and community stakeholders.
 
 ## Architecture Overview
 
@@ -49,29 +49,38 @@ Our residential street has become increasingly dangerous due to high traffic vol
 
 2. **Pipeline Engine** (`src/pipeline/`)
    - Clear stages: Preprocess → Detect → Track → Measure → Persist
-   - Tracking produces trajectories only (no counting side effects)
+   - Tracking produces trajectories for counting analysis
    - MeasureStage applies selected counting strategy
 
-3. **Counting Strategies** (`src/algorithms/counting/`)
+3. **Detection Backends** (`src/detection/`)
+   - **Background Subtraction**: CPU-only, single-class detection
+   - **YOLO (GPU/CPU)**: Multi-class object detection (person, bicycle, car, motorcycle, bus, truck)
+   - **Hailo (NPU)**: Hardware-accelerated YOLO for Raspberry Pi 5 (planned)
+   - All backends preserve class metadata through the pipeline
+
+4. **Counting Strategies** (`src/algorithms/counting/`)
    - **GateCounter** (default): Two-line gate for bi-directional streets
    - **LineCounter**: Single-line fallback
-   - All strategies emit canonical `CountEvent` with `A_TO_B`/`B_TO_A` direction codes
-   - Syncs `has_been_counted` to tracks to prevent double-counting from track fragmentation
+   - All strategies emit canonical `CountEvent` with direction codes and class metadata
+   - Defense-in-depth: prevents double-counting via track state + database constraints
 
-4. **Storage** (`src/storage/`)
-   - Single canonical table: `count_events`
+5. **Storage** (`src/storage/`)
+   - Single canonical table: `count_events` (schema v3)
+   - Stores class metadata (class_id, class_name, confidence, detection_backend)
    - Stats derived exclusively from `count_events`
-   - Schema versioning via `schema_meta` table (current: v2)
-   - Unique constraint prevents duplicate counts (defense-in-depth)
+   - Unique constraint prevents duplicate counts
 
-5. **Web API** (`src/web/`)
-   - JSON APIs for frontend
-   - `/api/status` primary polling endpoint
+6. **Web API** (`src/web/`)
+   - JSON APIs for frontend (`/api/status`, `/api/stats/*`)
+   - Modal split statistics: `/api/stats/by-class`
    - MJPEG streaming at `/api/camera/live.mjpg`
+   - Configuration management
 
-6. **Frontend** (`frontend/`)
+7. **Frontend** (`frontend/`)
    - React + TypeScript + Tailwind + shadcn/ui
-   - Dashboard, Configuration, Health pages
+   - Dashboard with live video and real-time counts
+   - Configuration interface for gate lines and settings
+   - System health monitoring
 
 ## Project Structure
 
@@ -254,10 +263,10 @@ The system supports multiple detection backends, configurable for different hard
 | `hailo` | Hailo NPU (Pi 5) | ✅ Multi-class | person, bicycle, car, motorcycle, bus, truck | Best for edge deployment (not yet implemented) |
 
 **Classification Details:**
-- **Multi-class backends** (`yolo`, `hailo`) preserve object class through the entire pipeline (detection → tracking → counting → storage)
-- **Single-class backend** (`bgsub`) produces unclassified detections with `class_id=NULL` and `class_name=NULL`
+- **Multi-class backends** (`yolo`, `hailo`) enable modal split analysis by detecting person, bicycle, car, motorcycle, bus, and truck
+- **Single-class backend** (`bgsub`) produces unclassified detections (CPU-only fallback)
 - All count events store `detection_backend` field to track which detector was used
-- Class-based statistics available via `/api/stats/by-class` when using multi-class backends
+- Class-based statistics available via `/api/stats/by-class` for advocacy reports showing car vs bike vs pedestrian volumes
 
 ### YOLO Detection (GPU/CPU)
 
@@ -399,7 +408,13 @@ Returns:
 }
 ```
 
-**Note:** Multi-class detection requires `detection.backend='yolo'` or `'hailo'`. Background subtraction (`bgsub`) produces unclassified detections.
+**Use Cases:**
+- **Advocacy**: "Show that 85% of traffic is through-traffic, not local residents"
+- **Modal split**: "Demonstrate need for bike lanes with actual cyclist counts"
+- **Time-of-day**: "Identify peak hours for speed enforcement requests"
+- **Before/after**: "Measure effectiveness of traffic calming interventions"
+
+**Note:** Multi-class detection requires `detection.backend='yolo'` or `'hailo'`. Background subtraction (`bgsub`) is CPU-only but produces unclassified detections.
 
 ## Cloud Sync (Optional)
 
@@ -423,6 +438,41 @@ cd frontend && npm run dev
 # Run backend
 python src/main.py --display
 ```
+
+## Data Collection
+
+The system collects the following data:
+
+**Per Count Event (stored in SQLite):**
+- Timestamp (epoch milliseconds)
+- Track ID (transient, resets on restart)
+- Direction (A_TO_B / B_TO_A)
+- Object class (person, bicycle, car, motorcycle, bus, truck, or NULL)
+- Detection confidence score
+- Gate crossing frames
+- Track age and displacement
+- Detection backend used
+
+**Video Data:**
+- Live MJPEG stream available via web interface (not stored)
+- Optional recording to disk if `--record` flag is used
+- No long-term video retention by default (disk space constraints)
+
+**Cloud Sync (optional):**
+- Count events synced to BigQuery for long-term analysis
+- No video data uploaded to cloud
+- Configurable sync interval and retention
+
+## Performance
+
+Tested configurations:
+
+| Hardware | Backend | FPS | Use Case |
+|----------|---------|-----|----------|
+| Desktop (RTX 3060) | YOLO (GPU) | 30 | Development, multi-class detection |
+| Desktop (CPU) | YOLO (CPU) | 10-15 | Testing without GPU |
+| Raspberry Pi 5 | Background Sub | 20-25 | Edge deployment, single-class |
+| Raspberry Pi 5 + AI HAT+ | Hailo (planned) | 20-30 | Edge deployment with classification |
 
 ## Contributing
 

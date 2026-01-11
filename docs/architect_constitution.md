@@ -3,16 +3,17 @@ Neighborhood Traffic Monitoring System
 
 This document defines the non-negotiable principles that govern all design and implementation work on this project. Any code, refactor, feature, or architectural change must comply with these rules.
 
-This system exists to produce **credible, privacy-respecting, evidence-grade traffic data** for public interest use.
+This system exists to produce **credible, evidence-grade traffic data** for advocacy, planning, and public interest use.
 
 ---
 
-## 1. Privacy is foundational
+## 1. Data quality is foundational
 
-- The system must never identify people, faces, license plates, or track individuals across days.
-- Aggregates and summaries are the product. Raw video is transient and for validation only.
-- Defaults must be conservative: short retention, minimal data, explicit opt-ins for anything sensitive.
-- No feature may weaken privacy even if it improves accuracy or convenience.
+- Every measurement must be reproducible, documented, and validated.
+- Counting accuracy, not privacy, is the primary design constraint.
+- The system should collect data that is useful for advocacy and actionable for stakeholders.
+- Defaults should favor utility: reasonable retention, comprehensive data collection, opt-out for sensitive features.
+- Design with reasonable privacy considerations (aggregates preferred over raw data where practical) but do not let privacy block useful features.
 
 ---
 
@@ -125,10 +126,10 @@ These must surface through logs and `/api/status` or `/api/health`.
 ---
 
 This constitution exists to protect the system from becoming:
-- Surveillance
-- Fragile
-- Over-engineered
-- Or untrustworthy
+- Inaccurate or unreliable
+- Fragile or unmaintainable
+- Over-engineered or unnecessarily complex
+- Expensive to operate at scale
 
 All changes must move the project toward:
-**Reliable, privacy-preserving, defensible evidence.**
+**Reliable, actionable, defensible evidence for traffic advocacy.**
