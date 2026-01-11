@@ -58,6 +58,7 @@ class YoloConfig:
     iou_threshold: float = 0.45
     classes: Optional[List[int]] = None
     class_name_overrides: Optional[Dict[int, str]] = None
+    class_thresholds: Optional[Dict[int, float]] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "YoloConfig":
@@ -67,6 +68,7 @@ class YoloConfig:
             iou_threshold=d.get("iou_threshold", 0.45),
             classes=d.get("classes"),
             class_name_overrides=d.get("class_name_overrides"),
+            class_thresholds=d.get("class_thresholds"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -79,6 +81,8 @@ class YoloConfig:
             d["classes"] = self.classes
         if self.class_name_overrides is not None:
             d["class_name_overrides"] = self.class_name_overrides
+        if self.class_thresholds is not None:
+            d["class_thresholds"] = self.class_thresholds
         return d
 
 

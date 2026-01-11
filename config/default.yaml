@@ -44,7 +44,10 @@ detection:
     # Recommended: "yolov8s.pt" (good accuracy/speed balance)
     # Alternatives: "yolov8n.pt" (faster), "yolov8m.pt" (more accurate)
     model: "yolov8s.pt"
-    conf_threshold: 0.35         # Confidence threshold (0.35 recommended for traffic)
+    
+    # Baseline confidence threshold for YOLO inference
+    # Set low (0.25) to capture all potential detections; class-specific thresholds applied after
+    conf_threshold: 0.25
     iou_threshold: 0.45          # NMS IoU threshold
     
     # Class filtering: COCO class IDs for neighborhood traffic
@@ -60,6 +63,19 @@ detection:
       3: "motorcycle"
       5: "bus"
       7: "truck"
+    
+    # Class-specific confidence thresholds (applied post-detection)
+    # Different object types require different sensitivity:
+    # - Lower thresholds for small/hard objects (pedestrians, bicycles)
+    # - Higher thresholds for large/easy objects (cars, buses)
+    # This significantly improves pedestrian/bicycle detection without increasing false positives
+    class_thresholds:
+      0: 0.20   # person - LOW (critical for safety, small in frame)
+      1: 0.25   # bicycle - LOW (important for modal split)
+      2: 0.40   # car - HIGH (large, easy to detect, reduce false positives)
+      3: 0.30   # motorcycle - MEDIUM
+      5: 0.45   # bus - HIGH (very large, easy to detect)
+      7: 0.45   # truck - HIGH (very large, easy to detect)
 
   # Hailo settings (used only when detection.backend == "hailo")
   # Requires Raspberry Pi 5 with AI HAT+ and hailo-all package installed

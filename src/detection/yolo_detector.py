@@ -26,6 +26,7 @@ class YoloConfig:
     iou_threshold: float = 0.45
     classes: Optional[Sequence[int]] = None
     class_name_overrides: Optional[Dict[int, str]] = None
+    class_thresholds: Optional[Dict[int, float]] = None  # Class-specific confidence thresholds
 
 
 class UltralyticsYoloDetector(Detector):
@@ -50,10 +51,27 @@ class UltralyticsYoloDetector(Detector):
         self._model = YOLO(cfg.model)
 
     def detect(self, frame: np.ndarray) -> List[Detection]:
+        """
+        Detect objects in frame using YOLO.
+        
+        Uses a two-stage filtering approach:
+        1. Run YOLO with baseline conf_threshold (captures all potential detections)
+        2. Apply class-specific thresholds post-detection (tune per-class sensitivity)
+        
+        This allows different thresholds for different object types:
+        - Lower thresholds for small/hard objects (pedestrians, bicycles)
+        - Higher thresholds for large/easy objects (cars, buses)
+        
+        Args:
+            frame: Input frame (BGR numpy array)
+            
+        Returns:
+            List of Detection objects that pass class-specific filtering
+        """
         # Ultralytics expects BGR numpy ok; returns Results list
         results = self._model.predict(
             source=frame,
-            conf=self.cfg.conf_threshold,
+            conf=self.cfg.conf_threshold,  # Baseline threshold (run YOLO permissively)
             iou=self.cfg.iou_threshold,
             classes=list(self.cfg.classes) if self.cfg.classes is not None else None,
             verbose=False,
@@ -76,6 +94,13 @@ class UltralyticsYoloDetector(Detector):
 
         for (x1, y1, x2, y2), c, k in zip(xyxy, conf, cls):
             class_id = int(k) if k is not None else None
+            
+            # Apply class-specific confidence threshold (if configured)
+            if self.cfg.class_thresholds and class_id is not None:
+                class_threshold = self.cfg.class_thresholds.get(class_id, self.cfg.conf_threshold)
+                if c < class_threshold:
+                    continue  # Skip detection below class-specific threshold
+            
             class_name = None
             if class_id is not None:
                 class_name = (

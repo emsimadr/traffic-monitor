@@ -262,6 +262,7 @@ def main():
                     iou_threshold=float(ycfg.get('iou_threshold', 0.45)),
                     classes=ycfg.get('classes'),
                     class_name_overrides=ycfg.get('class_name_overrides'),
+                    class_thresholds=ycfg.get('class_thresholds'),
                 )
             )
             # Log device info (GPU vs CPU)
