@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Optional
+import os
+import platform
 
 import numpy as np
 
@@ -27,6 +29,11 @@ class RuntimeContext:
 
     # Frame cache for web preview
     latest_frame: Optional[np.ndarray] = None
+    
+    # Platform metadata (captured at initialization)
+    detection_backend: str = "unknown"
+    platform_info: Optional[str] = None
+    process_pid: Optional[int] = None
 
     def update_frame(self, frame: np.ndarray, fps: float):
         self.latest_frame = frame
@@ -40,5 +47,27 @@ class RuntimeContext:
 
     def get_system_stats_copy(self):
         return dict(self.system_stats)
+    
+    def capture_platform_metadata(self) -> None:
+        """
+        Capture platform metadata for count events.
+        Should be called after detector is initialized.
+        """
+        # Capture detection backend
+        self.detection_backend = self.config.get("detection", {}).get("backend", "unknown")
+        
+        # Capture platform info
+        self.platform_info = platform.platform()
+        
+        # Capture process ID
+        self.process_pid = os.getpid()
+        
+        # Set metadata on counter if it supports it
+        if hasattr(self.counter, 'set_metadata'):
+            self.counter.set_metadata(
+                detection_backend=self.detection_backend,
+                platform=self.platform_info,
+                process_pid=self.process_pid
+            )
 
 

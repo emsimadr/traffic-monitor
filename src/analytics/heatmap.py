@@ -1,3 +1,0 @@
-"""Heatmap analytics (planned)."""
-
-

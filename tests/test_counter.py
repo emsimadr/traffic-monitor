@@ -8,7 +8,7 @@ from collections import deque
 
 from algorithms.counting.gate import GateCounter, GateCounterConfig
 from algorithms.counting.line import LineCounter, LineCounterConfig
-from detection.tracker import TrackedVehicle
+from tracking.tracker import TrackedVehicle
 
 
 def _tv(track_id: int, points):

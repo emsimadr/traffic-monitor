@@ -3,12 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 type Props = {
   today: number;
   directions: Record<string, number>;
+  classes: Record<string, number>;
   fps: number | null;
   lastFrameAge: number | null;
 };
 
-export function CountsCard({ today, directions, fps, lastFrameAge }: Props) {
+export function CountsCard({ today, directions, classes, fps, lastFrameAge }: Props) {
   const dirEntries = Object.entries(directions);
+  const classEntries = Object.entries(classes).sort((a, b) => b[1] - a[1]); // Sort by count desc
   
   return (
     <Card>
@@ -34,6 +36,18 @@ export function CountsCard({ today, directions, fps, lastFrameAge }: Props) {
                   value={count}
                   color={idx === 0 ? "cyan" : "orange"}
                 />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* By class (modal split) */}
+        {classEntries.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-xs text-slate-400 uppercase tracking-wide">By Class</div>
+            <div className="space-y-1">
+              {classEntries.slice(0, 5).map(([className, count]) => (
+                <ClassBar key={className} className={className} count={count} total={today} />
               ))}
             </div>
           </div>
@@ -77,4 +91,44 @@ function DirectionStat({
       <div className="text-xl font-semibold">{value}</div>
     </div>
   );
+}
+
+function ClassBar({
+  className,
+  count,
+  total,
+}: {
+  className: string;
+  count: number;
+  total: number;
+}) {
+  const percentage = total > 0 ? (count / total) * 100 : 0;
+  const color = getClassColor(className);
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-20 text-xs text-slate-400 truncate">{className}</div>
+      <div className="flex-1 h-5 rounded-full bg-slate-800/50 overflow-hidden">
+        <div
+          className={`h-full ${color} transition-all duration-300`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <div className="w-12 text-xs text-slate-300 text-right">{count}</div>
+    </div>
+  );
+}
+
+function getClassColor(className: string): string {
+  const colors: Record<string, string> = {
+    car: "bg-blue-500",
+    truck: "bg-blue-600",
+    bus: "bg-blue-700",
+    bicycle: "bg-green-500",
+    motorcycle: "bg-green-600",
+    person: "bg-amber-500",
+    pedestrian: "bg-amber-500",
+    unclassified: "bg-slate-600",
+  };
+  return colors[className.toLowerCase()] || "bg-slate-500";
 }

@@ -98,6 +98,51 @@ class CloudSync:
             self._sync_thread.join(timeout=10)
             logging.info("Cloud sync thread stopped")
     
+    def _update_table_schema(self, table_ref, expected_schema, table_name):
+        """
+        Update existing table schema by adding missing columns.
+        
+        This is a safe, additive-only operation that adds missing columns
+        to existing tables. It never drops or modifies existing columns.
+        
+        Args:
+            table_ref: BigQuery table reference
+            expected_schema: List of SchemaField objects for expected schema
+            table_name: Table name for logging
+        """
+        try:
+            from google.cloud import bigquery
+            
+            # Get current table
+            table = self.bigquery_client.get_table(table_ref)
+            current_fields = {field.name: field for field in table.schema}
+            expected_fields = {field.name: field for field in expected_schema}
+            
+            # Find missing columns
+            missing_columns = []
+            for field_name, field in expected_fields.items():
+                if field_name not in current_fields:
+                    missing_columns.append(field)
+            
+            if not missing_columns:
+                logging.info(f"BigQuery table '{table_name}' schema is up to date")
+                return
+            
+            # Add missing columns
+            logging.info(f"Updating BigQuery table '{table_name}' schema...")
+            logging.info(f"Adding {len(missing_columns)} missing columns: {[f.name for f in missing_columns]}")
+            
+            # Update schema by adding new fields
+            new_schema = list(table.schema) + missing_columns
+            table.schema = new_schema
+            table = self.bigquery_client.update_table(table, ["schema"])
+            
+            logging.info(f"Successfully updated BigQuery table '{table_name}' schema")
+            
+        except Exception as e:
+            logging.error(f"Error updating BigQuery table '{table_name}' schema: {e}")
+            logging.warning(f"Table '{table_name}' may be missing columns. Consider running manual migration.")
+    
     def _ensure_bigquery_tables(self):
         """Ensure BigQuery dataset and tables exist with correct schemas."""
         if not self.is_cloud_enabled:
@@ -129,6 +174,14 @@ class CloudSync:
                 bigquery.SchemaField("direction", "STRING", mode="NULLABLE"),
                 bigquery.SchemaField("direction_label", "STRING", mode="NULLABLE"),
                 bigquery.SchemaField("recorded_at", "TIMESTAMP", mode="NULLABLE"),
+                # Schema v3: Object classification and quality
+                bigquery.SchemaField("class_id", "INTEGER", mode="NULLABLE"),
+                bigquery.SchemaField("class_name", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("confidence", "FLOAT", mode="NULLABLE"),
+                # Schema v3: Platform metadata
+                bigquery.SchemaField("detection_backend", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("platform", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("process_pid", "INTEGER", mode="NULLABLE"),
             ]
             
             hourly_counts_schema = [
@@ -149,6 +202,8 @@ class CloudSync:
             try:
                 self.bigquery_client.get_table(vehicles_table_ref)
                 logging.info(f"BigQuery table '{vehicles_table_id}' exists")
+                # Update schema if needed (add missing columns)
+                self._update_table_schema(vehicles_table_ref, vehicle_detections_schema, vehicles_table_id)
             except NotFound:
                 logging.info(f"Creating BigQuery table '{vehicles_table_id}'")
                 table = bigquery.Table(vehicles_table_ref, schema=vehicle_detections_schema)
@@ -161,6 +216,8 @@ class CloudSync:
             try:
                 self.bigquery_client.get_table(hourly_table_ref)
                 logging.info(f"BigQuery table '{hourly_table_id}' exists")
+                # Update schema if needed (add missing columns)
+                self._update_table_schema(hourly_table_ref, hourly_counts_schema, hourly_table_id)
             except NotFound:
                 logging.info(f"Creating BigQuery table '{hourly_table_id}'")
                 table = bigquery.Table(hourly_table_ref, schema=hourly_counts_schema)
@@ -173,6 +230,8 @@ class CloudSync:
             try:
                 self.bigquery_client.get_table(daily_table_ref)
                 logging.info(f"BigQuery table '{daily_table_id}' exists")
+                # Update schema if needed (add missing columns)
+                self._update_table_schema(daily_table_ref, daily_counts_schema, daily_table_id)
             except NotFound:
                 logging.info(f"Creating BigQuery table '{daily_table_id}'")
                 table = bigquery.Table(daily_table_ref, schema=daily_counts_schema)
@@ -288,11 +347,18 @@ class CloudSync:
                     'direction': row.get('direction_code', 'unknown'),
                     'direction_label': row.get('direction_label'),
                     'recorded_at': datetime.utcnow().isoformat(),
+                    # Schema v3: Object classification and quality
+                    'class_id': row.get('class_id'),
+                    'class_name': row.get('class_name'),
+                    'confidence': row.get('confidence'),
+                    # Schema v3: Platform metadata
+                    'detection_backend': row.get('detection_backend'),
+                    'platform': row.get('platform'),
+                    'process_pid': row.get('process_pid'),
                 }
                 
-                # Remove direction_label if BigQuery table doesn't have it
-                if 'direction_label' in bq_row and bq_row['direction_label'] is None:
-                    del bq_row['direction_label']
+                # Remove None values to avoid BigQuery errors
+                bq_row = {k: v for k, v in bq_row.items() if v is not None}
                 
                 # Validate data before adding
                 if self._validate_vehicle_detection(bq_row):

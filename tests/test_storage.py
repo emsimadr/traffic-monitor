@@ -78,6 +78,8 @@ class TestSchemaCreation:
             "id", "ts", "frame_idx", "track_id", "direction_code",
             "direction_label", "gate_sequence", "line_a_cross_frame",
             "line_b_cross_frame", "track_age_frames", "track_displacement_px",
+            "class_id", "class_name", "confidence",
+            "detection_backend", "platform", "process_pid",
             "cloud_synced"
         }
         
@@ -198,6 +200,12 @@ class TestWriteOperations:
             line_b_cross_frame=25,
             track_age_frames=20,
             track_displacement_px=150.75,
+            class_id=2,
+            class_name="car",
+            confidence=0.87,
+            detection_backend="yolo",
+            platform="Linux-5.4",
+            process_pid=12345,
         )
         
         db.add_count_event(event)
@@ -217,6 +225,12 @@ class TestWriteOperations:
         assert row["line_b_cross_frame"] == 25
         assert row["track_age_frames"] == 20
         assert abs(row["track_displacement_px"] - 150.75) < 0.01
+        assert row["class_id"] == 2
+        assert row["class_name"] == "car"
+        assert abs(row["confidence"] - 0.87) < 0.01
+        assert row["detection_backend"] == "yolo"
+        assert row["platform"] == "Linux-5.4"
+        assert row["process_pid"] == 12345
         
         conn.close()
         db.close()

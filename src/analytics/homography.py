@@ -1,3 +1,0 @@
-"""Homography calibration helpers (planned)."""
-
-

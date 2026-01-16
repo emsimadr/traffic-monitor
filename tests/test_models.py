@@ -106,17 +106,37 @@ class TestTrack:
         assert track.age == 1
         assert track.is_active is True
 
+    def test_track_with_metadata(self):
+        track = Track(
+            track_id=2,
+            bbox=BoundingBox(100, 100, 150, 150),
+            center=(125.0, 125.0),
+            trajectory=deque([(125.0, 125.0)]),
+            class_id=2,
+            class_name="car",
+            confidence=0.87,
+        )
+        assert track.class_id == 2
+        assert track.class_name == "car"
+        assert track.confidence == 0.87
+
     def test_track_state_from_track(self):
         track = Track(
             track_id=5,
             bbox=BoundingBox(10, 20, 30, 40),
             center=(20.0, 30.0),
             direction="A_TO_B",
+            class_id=2,
+            class_name="car",
+            confidence=0.9,
         )
         state = TrackState.from_track(track)
         assert state.track_id == 5
         assert state.bbox == (10, 20, 30, 40)
         assert state.direction == "A_TO_B"
+        assert state.class_id == 2
+        assert state.class_name == "car"
+        assert state.confidence == 0.9
 
 
 class TestCountEvent:
@@ -132,6 +152,30 @@ class TestCountEvent:
         assert d["track_id"] == 1
         assert d["direction"] == "A_TO_B"
         assert d["direction_label"] == "northbound"
+    
+    def test_to_dict_with_metadata(self):
+        event = CountEvent(
+            track_id=1,
+            direction="A_TO_B",
+            direction_label="northbound",
+            timestamp=1234567890.0,
+            counting_mode="gate",
+            class_id=2,
+            class_name="car",
+            confidence=0.87,
+            detection_backend="yolo",
+            platform="Windows-10",
+            process_pid=12345,
+        )
+        d = event.to_dict()
+        assert d["track_id"] == 1
+        assert d["direction"] == "A_TO_B"
+        assert d["class_id"] == 2
+        assert d["class_name"] == "car"
+        assert d["confidence"] == 0.87
+        assert d["detection_backend"] == "yolo"
+        assert d["platform"] == "Windows-10"
+        assert d["process_pid"] == 12345
 
 
 class TestStatus:

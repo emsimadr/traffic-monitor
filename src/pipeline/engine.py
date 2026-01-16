@@ -92,6 +92,9 @@ class PipelineEngine:
         self._video_writer: Optional[cv2.VideoWriter] = None
         self._output_path: Optional[str] = None
         self._callbacks: List[Callable[[FrameData, List], None]] = []
+        
+        # Track config changes
+        self._last_counting_config = self.ctx.config.get("counting", {})
 
     def add_callback(self, callback: Callable[[FrameData, List], None]) -> None:
         """
@@ -155,6 +158,10 @@ class PipelineEngine:
                 # Periodic tasks
                 self._handle_periodic_tasks()
                 
+                # Check for config updates (every 30 frames / ~1 sec)
+                if self.stats.frame_count % 30 == 0:
+                    self._check_config_update()
+                
         except KeyboardInterrupt:
             logging.info("Pipeline interrupted by user")
         except Exception as e:
@@ -163,6 +170,24 @@ class PipelineEngine:
             traceback.print_exc()
         finally:
             self._cleanup()
+
+    def _check_config_update(self) -> None:
+        """Check if counting configuration has changed in web state."""
+        if not hasattr(self.ctx.web_state, "get_config_copy"):
+            return
+            
+        current_config = self.ctx.web_state.get_config_copy()
+        if not current_config:
+            return
+            
+        current_counting = current_config.get("counting", {}) or {}
+        
+        # Compare with last known config
+        # We use simple equality check which works for dicts
+        if current_counting != self._last_counting_config:
+            logging.info("Pipeline detected counting config change, updating measure stage...")
+            self._measure_stage.update_config(current_counting)
+            self._last_counting_config = current_counting
 
     def stop(self) -> None:
         """Signal the pipeline to stop after the current frame."""
@@ -185,8 +210,20 @@ class PipelineEngine:
             else np.array([])
         )
         
+        # Extract detection metadata (class_id, class_name, confidence)
+        detection_metadata = None
+        if detections:
+            detection_metadata = [
+                {
+                    'class_id': d.class_id,
+                    'class_name': d.class_name,
+                    'confidence': d.confidence,
+                }
+                for d in detections
+            ]
+        
         # Track (produces tracks only, no counting side effects)
-        self.ctx.tracker.update(det_array, counting_line=None)
+        self.ctx.tracker.update(det_array, counting_line=None, detection_metadata=detection_metadata)
         
         # Get active tracks for counting
         active_tracks = self.ctx.tracker.get_active_tracks()
@@ -414,9 +451,23 @@ def create_engine_from_config(
         record=record,
     )
     
-    # Create measure stage
+    # Capture platform metadata
+    import os
+    import platform as platform_mod
+    platform_metadata = {
+        'detection_backend': config.get('detection', {}).get('backend', 'unknown'),
+        'platform': platform_mod.platform(),
+        'process_pid': os.getpid(),
+    }
+    
+    # Create measure stage with platform metadata
     counting_cfg = config.get("counting", {}) or {}
-    measure_stage = create_measure_stage(counting_cfg, db=ctx.db, persist=True)
+    measure_stage = create_measure_stage(
+        counting_cfg, 
+        db=ctx.db, 
+        persist=True,
+        platform_metadata=platform_metadata
+    )
     
     return PipelineEngine(source, ctx, measure_stage, pipeline_config)
 

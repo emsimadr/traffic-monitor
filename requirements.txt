@@ -9,5 +9,14 @@ uvicorn[standard]>=0.27.0
 jinja2>=3.1.0
 pydantic>=2.0.0
 
+# AI Detection (optional - install for YOLO backend)
+# Enables GPU acceleration when CUDA is available
+# Install with: pip install ultralytics
+# ultralytics>=8.0.0
+
 # Development/Testing
 pytest>=7.0.0
+
+# Hailo AI HAT+ (Raspberry Pi 5 only - system package)
+# Install on Pi with: sudo apt install hailo-all
+# The hailort Python bindings are provided by the system package

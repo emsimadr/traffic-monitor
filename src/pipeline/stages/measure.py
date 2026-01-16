@@ -29,9 +29,11 @@ class MeasureStageConfig:
     Attributes:
         counting_config: Raw counting config from YAML.
         persist_events: Whether to persist events to database.
+        platform_metadata: Platform metadata (backend, platform, process_pid).
     """
     counting_config: Dict[str, Any] = field(default_factory=dict)
     persist_events: bool = True
+    platform_metadata: Optional[Dict[str, Any]] = None
 
 
 class MeasureStage:
@@ -113,6 +115,30 @@ class MeasureStage:
             logging.info(f"MeasureStage initialized LineCounter (mode={mode})")
         
         logging.debug(f"Counting lines: {len(self._counter.get_lines())}")
+        
+        # Set platform metadata if available
+        if hasattr(self._config, 'platform_metadata') and self._config.platform_metadata:
+            if hasattr(self._counter, 'set_metadata'):
+                meta = self._config.platform_metadata
+                self._counter.set_metadata(
+                    detection_backend=meta.get('detection_backend', 'unknown'),
+                    platform=meta.get('platform'),
+                    process_pid=meta.get('process_pid')
+                )
+                logging.debug(f"Platform metadata set on counter: backend={meta.get('detection_backend')}")
+
+    def update_config(self, counting_cfg: Dict[str, Any]) -> None:
+        """
+        Update the counting configuration and re-initialize counter.
+        
+        Args:
+            counting_cfg: New counting configuration.
+        """
+        self._config.counting_config = counting_cfg
+        # Force re-initialization on next ensure_counter call
+        self._counter = None
+        if self._frame_size:
+            self.ensure_counter(*self._frame_size)
 
     def process(self, tracks: List[Any], frame_idx: int) -> List[CountEvent]:
         """
@@ -128,6 +154,12 @@ class MeasureStage:
         if self._counter is None:
             return []
         
+        # Sync counted status from tracks to counter (in case counter was reset/replaced)
+        if self._counter is not None:
+            for track in tracks:
+                if getattr(track, 'has_been_counted', False):
+                    self._counter.mark_counted(track.vehicle_id)
+
         # Run counter (does not modify tracks)
         events = self._counter.process(tracks, frame_idx)
         
@@ -201,6 +233,7 @@ def create_measure_stage(
     counting_cfg: Dict[str, Any],
     db: Any = None,
     persist: bool = True,
+    platform_metadata: Optional[Dict[str, Any]] = None,
 ) -> MeasureStage:
     """
     Factory function to create a MeasureStage from config.
@@ -209,10 +242,12 @@ def create_measure_stage(
         counting_cfg: Counting configuration from YAML.
         db: Database instance.
         persist: Whether to persist events.
+        platform_metadata: Platform metadata (backend, platform, process_pid).
     """
     config = MeasureStageConfig(
         counting_config=counting_cfg,
         persist_events=persist,
+        platform_metadata=platform_metadata,
     )
     return MeasureStage(config, db=db)
 

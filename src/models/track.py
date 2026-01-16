@@ -25,6 +25,9 @@ class Track:
         direction: Direction label (set by counter, not tracker).
         has_been_counted: Whether this track has triggered a count event.
         trajectory: History of center positions (newest last).
+        class_id: Optional COCO class ID from detection.
+        class_name: Optional human-readable class name.
+        confidence: Detection confidence score (0-1).
     """
     track_id: int
     bbox: BoundingBox
@@ -33,14 +36,17 @@ class Track:
     direction: Optional[str] = None
     has_been_counted: bool = False
     trajectory: Deque[Tuple[float, float]] = field(default_factory=lambda: deque(maxlen=20))
+    class_id: Optional[int] = None
+    class_name: Optional[str] = None
+    confidence: float = 1.0
 
     @classmethod
     def from_tracked_vehicle(cls, tv) -> "Track":
         """
-        Adapter: Convert from detection.tracker.TrackedVehicle to Track.
+        Adapter: Convert from tracking.tracker.TrackedVehicle to Track.
         
         Args:
-            tv: A TrackedVehicle instance from detection.tracker.
+            tv: A TrackedVehicle instance from tracking.tracker.
         """
         bbox = tv.bbox  # (x1, y1, x2, y2) tuple
         return cls(
@@ -51,6 +57,9 @@ class Track:
             direction=tv.direction,
             has_been_counted=tv.has_been_counted,
             trajectory=deque(tv.trajectory, maxlen=20),
+            class_id=getattr(tv, "class_id", None),
+            class_name=getattr(tv, "class_name", None),
+            confidence=getattr(tv, "confidence", 1.0),
         )
 
     @property
@@ -75,12 +84,18 @@ class TrackState:
         center: Center point (cx, cy).
         direction: Direction label if set.
         has_been_counted: Whether counted.
+        class_id: Optional COCO class ID.
+        class_name: Optional human-readable class name.
+        confidence: Detection confidence score.
     """
     track_id: int
     bbox: Tuple[int, int, int, int]
     center: Tuple[float, float]
     direction: Optional[str] = None
     has_been_counted: bool = False
+    class_id: Optional[int] = None
+    class_name: Optional[str] = None
+    confidence: float = 1.0
 
     @classmethod
     def from_track(cls, track: Track) -> "TrackState":
@@ -91,12 +106,15 @@ class TrackState:
             center=track.center,
             direction=track.direction,
             has_been_counted=track.has_been_counted,
+            class_id=track.class_id,
+            class_name=track.class_name,
+            confidence=track.confidence,
         )
 
     @classmethod
     def from_tracked_vehicle(cls, tv) -> "TrackState":
         """
-        Adapter: Convert from detection.tracker.TrackedVehicle to TrackState.
+        Adapter: Convert from tracking.tracker.TrackedVehicle to TrackState.
         """
         return cls(
             track_id=tv.vehicle_id,
@@ -104,6 +122,9 @@ class TrackState:
             center=tv.center,
             direction=tv.direction,
             has_been_counted=tv.has_been_counted,
+            class_id=getattr(tv, "class_id", None),
+            class_name=getattr(tv, "class_name", None),
+            confidence=getattr(tv, "confidence", 1.0),
         )
 
     @classmethod
@@ -117,6 +138,9 @@ class TrackState:
             center=ts.center,
             direction=ts.direction,
             has_been_counted=ts.has_been_counted,
+            class_id=getattr(ts, "class_id", None),
+            class_name=getattr(ts, "class_name", None),
+            confidence=getattr(ts, "confidence", 1.0),
         )
 
 

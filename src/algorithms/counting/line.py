@@ -127,6 +127,11 @@ class LineCounter(Counter):
         super().__init__(config)
         self._line_config = config
         self._track_states: Dict[int, _LineTrackState] = {}
+        
+        # Platform metadata (set via set_metadata())
+        self._detection_backend = "unknown"
+        self._platform = None
+        self._process_pid = None
 
     @property
     def line(self) -> List[Tuple[int, int]]:
@@ -201,6 +206,11 @@ class LineCounter(Counter):
             label_key = direction_code.lower()
             direction_label = self.direction_labels.get(label_key, direction_code)
             
+            # Extract detection metadata from track
+            class_id = getattr(track, 'class_id', None)
+            class_name = getattr(track, 'class_name', None)
+            confidence = getattr(track, 'confidence', 1.0)
+            
             # Create count event with standard direction code
             event = CountEvent(
                 track_id=track_id,
@@ -213,6 +223,12 @@ class LineCounter(Counter):
                 line_b_cross_frame=None,
                 track_age_frames=age_frames,
                 track_displacement_px=displacement,
+                class_id=class_id,
+                class_name=class_name,
+                confidence=confidence,
+                detection_backend=getattr(self, '_detection_backend', 'unknown'),
+                platform=getattr(self, '_platform', None),
+                process_pid=getattr(self, '_process_pid', None),
             )
             events.append(event)
             
@@ -232,6 +248,21 @@ class LineCounter(Counter):
         """Reset counter state."""
         super().reset()
         self._track_states.clear()
+    
+    def set_metadata(self, detection_backend: str = "unknown", 
+                    platform: Optional[str] = None, 
+                    process_pid: Optional[int] = None) -> None:
+        """
+        Set platform metadata for count events.
+        
+        Args:
+            detection_backend: Backend used for detection ("bgsub", "yolo", "hailo").
+            platform: Platform string (e.g., "Windows-10", "Linux-6.1.21-rpi").
+            process_pid: Process ID creating events.
+        """
+        self._detection_backend = detection_backend
+        self._platform = platform
+        self._process_pid = process_pid
 
 
 def create_line_counter_from_config(

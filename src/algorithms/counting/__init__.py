@@ -9,18 +9,22 @@ Available counters:
 - GateCounter: Two-line gate counting (A->B or B->A sequences)
 """
 
-from .base import Counter, CounterConfig
+from .base import Counter, CounterConfig, DIRECTION_A_TO_B, DIRECTION_B_TO_A
 from .line import LineCounter, LineCounterConfig, create_line_counter_from_config
 from .gate import GateCounter, GateCounterConfig, create_gate_counter_from_config
+from .utils import compute_counting_line
 
 __all__ = [
     "Counter",
     "CounterConfig",
+    "DIRECTION_A_TO_B",
+    "DIRECTION_B_TO_A",
     "LineCounter",
     "LineCounterConfig",
     "create_line_counter_from_config",
     "GateCounter",
     "GateCounterConfig",
     "create_gate_counter_from_config",
+    "compute_counting_line",
 ]
 

@@ -3,6 +3,7 @@ import StatusBar from "./StatusBar";
 
 const navLinks = [
   { to: "/", label: "Dashboard" },
+  { to: "/trends", label: "Trends" },
   { to: "/config", label: "Configure" },
   { to: "/health", label: "Health" },
   { to: "/logs", label: "Logs" },

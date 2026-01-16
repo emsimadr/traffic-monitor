@@ -126,6 +126,11 @@ class GateCounter(Counter):
         super().__init__(config)
         self._gate_config = config
         self._track_states: Dict[int, _GateTrackState] = {}
+        
+        # Platform metadata (set via set_metadata())
+        self._detection_backend = "unknown"
+        self._platform = None
+        self._process_pid = None
 
     @property
     def line_a(self) -> List[Tuple[int, int]]:
@@ -251,6 +256,11 @@ class GateCounter(Counter):
             sequence,
         )
         
+        # Extract detection metadata from track
+        class_id = getattr(track, 'class_id', None)
+        class_name = getattr(track, 'class_name', None)
+        confidence = getattr(track, 'confidence', 1.0)
+        
         # Create count event
         event = CountEvent(
             track_id=track_id,
@@ -263,6 +273,12 @@ class GateCounter(Counter):
             line_b_cross_frame=st.line_b_frame,
             track_age_frames=age_frames,
             track_displacement_px=displacement,
+            class_id=class_id,
+            class_name=class_name,
+            confidence=confidence,
+            detection_backend=getattr(self, '_detection_backend', 'unknown'),
+            platform=getattr(self, '_platform', None),
+            process_pid=getattr(self, '_process_pid', None),
         )
         
         # Mark as counted in counter's internal state
@@ -330,6 +346,21 @@ class GateCounter(Counter):
         stale_ids = set(self._track_states.keys()) - active_track_ids
         for track_id in stale_ids:
             del self._track_states[track_id]
+    
+    def set_metadata(self, detection_backend: str = "unknown", 
+                    platform: Optional[str] = None, 
+                    process_pid: Optional[int] = None) -> None:
+        """
+        Set platform metadata for count events.
+        
+        Args:
+            detection_backend: Backend used for detection ("bgsub", "yolo", "hailo").
+            platform: Platform string (e.g., "Windows-10", "Linux-6.1.21-rpi").
+            process_pid: Process ID creating events.
+        """
+        self._detection_backend = detection_backend
+        self._platform = platform
+        self._process_pid = process_pid
 
 
 def create_gate_counter_from_config(

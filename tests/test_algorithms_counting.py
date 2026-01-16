@@ -33,6 +33,9 @@ class MockTrack:
     frames_since_seen: int = 0
     direction: Optional[str] = None
     has_been_counted: bool = False
+    class_id: Optional[int] = None
+    class_name: Optional[str] = None
+    confidence: float = 1.0
 
 
 class TestCounterBase:

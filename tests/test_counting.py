@@ -3,7 +3,7 @@ Smoke tests for counting helpers and line crossing detection.
 """
 
 import pytest
-from analytics.counting import compute_counting_line
+from algorithms.counting import compute_counting_line
 
 
 class TestComputeCountingLine:

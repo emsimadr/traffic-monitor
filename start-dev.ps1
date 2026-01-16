@@ -20,8 +20,9 @@ Start-Process powershell -ArgumentList @(
     "cd 'C:\Users\Michael\workspace\Coding Projects\traffic-monitor'; & '.venv/Scripts/Activate.ps1'; `$env:PYTHONPATH='src'; `$env:OPENCV_FFMPEG_CAPTURE_OPTIONS='rtsp_transport;tcp'; python src/main.py --config config/config.yaml --kill-existing"
 ) -WindowStyle Normal
 
-# Wait for backend to initialize
-Start-Sleep -Seconds 3
+# Wait for backend to initialize (loading config, camera, model)
+Write-Host "Waiting for backend to initialize..." -ForegroundColor Yellow
+Start-Sleep -Seconds 8
 
 # Start Frontend (Vite)
 Write-Host "Starting Frontend on port 5173..." -ForegroundColor Green

@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCompactStatus } from "../lib/api";
 import { LiveFeed } from "../components/LiveFeed";
 import { CountsCard } from "../components/CountsCard";
 import { AlertsList } from "../components/AlertsList";
+import { RecentEventsTable } from "../components/RecentEventsTable";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 
 export default function Dashboard() {
@@ -36,6 +37,26 @@ export default function Dashboard() {
     }
     return result;
   }, [data]);
+
+  // Class distribution (modal split)
+  const classes = data?.counts_by_class ?? {};
+
+  // Browser notifications for critical warnings
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    
+    if (Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    
+    if (Notification.permission === "granted" && warnings.includes("camera_offline")) {
+      new Notification("Traffic Monitor Alert", {
+        body: "Camera offline for more than 10 seconds",
+        icon: "/favicon.ico",
+        tag: "camera-offline", // Prevent duplicate notifications
+      });
+    }
+  }, [warnings]);
 
   return (
     <div className="space-y-4">
@@ -78,6 +99,7 @@ export default function Dashboard() {
         <CountsCard
           today={countsToday}
           directions={directions}
+          classes={classes}
           fps={fps}
           lastFrameAge={lastFrameAge}
         />
@@ -85,6 +107,9 @@ export default function Dashboard() {
 
       {/* Bottom row */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {/* Recent Events */}
+        <RecentEventsTable />
+
         {/* Alerts */}
         <AlertsList alerts={warnings} />
 
@@ -120,24 +145,6 @@ export default function Dashboard() {
                   : "N/A"
               }
             />
-          </CardContent>
-        </Card>
-
-        {/* Quick info */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Direction Labels</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {Object.entries(data?.direction_labels || {}).map(([code, label]) => (
-              <div key={code} className="flex justify-between">
-                <span className="text-slate-400">{code}</span>
-                <span>{label}</span>
-              </div>
-            ))}
-            {Object.keys(data?.direction_labels || {}).length === 0 && (
-              <div className="text-slate-500">No labels configured</div>
-            )}
           </CardContent>
         </Card>
       </div>

@@ -1,8 +1,12 @@
 """
-Domain-level models and contracts for detections, tracking, and counting events.
-Keeping these simple and typed helps enforce boundaries between components.
+Domain-level models and contracts.
+
+Note: The canonical model definitions are in src/models/.
+This module re-exports them for backward compatibility.
 """
 
-from .models import Detection, TrackState, CountEvent  # noqa: F401
+from models.count_event import CountEvent
+from models.detection import Detection
+from models.track import TrackState
 
-
+__all__ = ["Detection", "TrackState", "CountEvent"]

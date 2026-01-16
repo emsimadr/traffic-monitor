@@ -68,7 +68,7 @@ class MockDetector:
 class MockTracker:
     """Mock tracker for testing."""
     
-    def update(self, detections, counting_line=None):
+    def update(self, detections, counting_line=None, detection_metadata=None):
         return []
     
     def get_active_tracks(self):

@@ -4,7 +4,7 @@ Smoke tests for VehicleTracker stability across synthetic sequences.
 
 import numpy as np
 import pytest
-from detection.tracker import VehicleTracker, TrackedVehicle
+from tracking.tracker import VehicleTracker, TrackedVehicle
 
 
 class TestTrackerBasics:
@@ -163,6 +163,59 @@ class TestTrackerSequence:
         all_tracks = tracker.get_all_tracks()
         assert len(all_tracks) == 1
         assert all_tracks[0].has_been_counted is True
+
+
+class TestTrackerMetadata:
+    """Tests for detection metadata preservation."""
+    
+    def test_metadata_stored_on_new_track(self):
+        """Detection metadata is stored when creating new track."""
+        tracker = VehicleTracker()
+        
+        det = np.array([[100, 100, 150, 150]])
+        metadata = [{'class_id': 2, 'class_name': 'car', 'confidence': 0.87}]
+        
+        tracker.update(det, detection_metadata=metadata)
+        
+        assert len(tracker.tracked_vehicles) == 1
+        track = list(tracker.tracked_vehicles.values())[0]
+        assert track.class_id == 2
+        assert track.class_name == 'car'
+        assert track.confidence == 0.87
+    
+    def test_metadata_updated_on_existing_track(self):
+        """Detection metadata is updated when track is matched."""
+        tracker = VehicleTracker(iou_threshold=0.3)
+        
+        # Create track without metadata
+        det1 = np.array([[100, 100, 150, 150]])
+        tracker.update(det1)
+        
+        track = list(tracker.tracked_vehicles.values())[0]
+        assert track.class_id is None
+        
+        # Update with metadata
+        det2 = np.array([[105, 105, 155, 155]])  # Slight movement
+        metadata = [{'class_id': 2, 'class_name': 'car', 'confidence': 0.9}]
+        tracker.update(det2, detection_metadata=metadata)
+        
+        # Same track should now have metadata
+        track = list(tracker.tracked_vehicles.values())[0]
+        assert track.class_id == 2
+        assert track.class_name == 'car'
+        assert track.confidence == 0.9
+    
+    def test_no_metadata_defaults(self):
+        """Tracks without metadata have default values."""
+        tracker = VehicleTracker()
+        
+        det = np.array([[100, 100, 150, 150]])
+        tracker.update(det)  # No metadata provided
+        
+        track = list(tracker.tracked_vehicles.values())[0]
+        assert track.class_id is None
+        assert track.class_name is None
+        assert track.confidence == 1.0
 
 
 class TestIoUCalculation:

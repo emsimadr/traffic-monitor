@@ -5,6 +5,5 @@ This module handles vehicle detection in video frames.
 """
 
 from .vehicle import VehicleDetector
-from .tracker import VehicleTracker
 
-__all__ = ['VehicleDetector', 'VehicleTracker']
+__all__ = ['VehicleDetector']

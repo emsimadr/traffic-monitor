@@ -18,7 +18,8 @@ from models.count_event import CountEvent
 
 # Schema version - increment when schema changes
 # Version 2: Added unique constraint on (track_id, ts_second) to prevent double-counting
-EXPECTED_SCHEMA_VERSION = 2
+# Version 3: Added class_id, class_name, confidence, detection_backend, platform, process_pid
+EXPECTED_SCHEMA_VERSION = 3
 
 
 class Database:
@@ -114,7 +115,7 @@ class Database:
             )
         """)
         
-        # Create count_events table (gate-first schema)
+        # Create count_events table (gate-first schema with classification & metadata)
         cursor.execute("""
             CREATE TABLE count_events (
                 id INTEGER PRIMARY KEY,
@@ -128,6 +129,12 @@ class Database:
                 line_b_cross_frame INTEGER,
                 track_age_frames INTEGER,
                 track_displacement_px REAL,
+                class_id INTEGER,
+                class_name TEXT,
+                confidence REAL DEFAULT 1.0,
+                detection_backend TEXT DEFAULT 'unknown',
+                platform TEXT,
+                process_pid INTEGER,
                 cloud_synced INTEGER DEFAULT 0
             )
         """)
@@ -141,6 +148,12 @@ class Database:
         )
         cursor.execute(
             "CREATE INDEX idx_count_events_cloud_synced ON count_events(cloud_synced)"
+        )
+        cursor.execute(
+            "CREATE INDEX idx_count_events_class ON count_events(class_name)"
+        )
+        cursor.execute(
+            "CREATE INDEX idx_count_events_backend ON count_events(detection_backend)"
         )
         
         # Defense-in-depth: prevent duplicate counts for same track within same second
@@ -225,8 +238,11 @@ class Database:
                 INSERT INTO count_events (
                     ts, frame_idx, track_id, direction_code, direction_label,
                     gate_sequence, line_a_cross_frame, line_b_cross_frame,
-                    track_age_frames, track_displacement_px, cloud_synced
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    track_age_frames, track_displacement_px,
+                    class_id, class_name, confidence,
+                    detection_backend, platform, process_pid,
+                    cloud_synced
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             """, (
                 ts_ms,
                 event.line_a_cross_frame,  # Use line_a_cross_frame as frame_idx proxy
@@ -238,6 +254,12 @@ class Database:
                 event.line_b_cross_frame,
                 event.track_age_frames,
                 event.track_displacement_px,
+                event.class_id,
+                event.class_name,
+                event.confidence,
+                event.detection_backend,
+                event.platform,
+                event.process_pid,
             ))
             
             self._get_connection().commit()
@@ -366,6 +388,46 @@ class Database:
             
         except sqlite3.Error as e:
             logging.error(f"Error getting counts by direction code: {e}")
+            return {}
+    
+    def get_counts_by_class(
+        self,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+    ) -> Dict[str, int]:
+        """
+        Get counts grouped by class_name (for modal split analysis).
+        
+        Args:
+            start_time: Start time as Unix timestamp (default: 24 hours ago).
+            end_time: End time as Unix timestamp (default: now).
+            
+        Returns:
+            Dict mapping class_name -> count. NULL class_name grouped as "unclassified".
+        """
+        try:
+            cursor = self._get_connection().cursor()
+            
+            if start_time is None:
+                start_time = time.time() - 86400
+            if end_time is None:
+                end_time = time.time()
+            
+            start_ms = int(start_time * 1000)
+            end_ms = int(end_time * 1000)
+            
+            cursor.execute("""
+                SELECT COALESCE(class_name, 'unclassified') as class, COUNT(*) 
+                FROM count_events 
+                WHERE ts BETWEEN ? AND ?
+                GROUP BY class
+                ORDER BY COUNT(*) DESC
+            """, (start_ms, end_ms))
+            
+            return {row[0]: row[1] for row in cursor.fetchall()}
+            
+        except sqlite3.Error as e:
+            logging.error(f"Error getting counts by class: {e}")
             return {}
     
     def get_counts_by_direction_label(
