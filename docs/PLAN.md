@@ -304,7 +304,9 @@ detection:
 - [x] Full pipeline integration (detection → tracking → counting → storage)
 - [x] Schema v3 with class metadata (class_id, class_name, confidence, backend)
 - [x] Class-specific confidence thresholds (improves pedestrian/bicycle detection)
-- [ ] AI HAT+ (Hailo) backend for Raspberry Pi 5
+- [x] AI HAT+ (Hailo) backend for Raspberry Pi 5
+- [ ] Hailo model compilation documented + pre-compiled HEF available
+- [ ] 72-hour stability test on Pi 5 + Hailo
 - [ ] Improved tracking (ByteTrack-style)
 
 **Detection Backend Capabilities:**
@@ -313,7 +315,7 @@ detection:
 |---------|---------------|----------|---------------------|--------|
 | `bgsub` | Single-class (motion blobs) | Any CPU | Poor (no classification) | ✅ Production |
 | `yolo` | 6 classes + class-specific thresholds | GPU/CPU | Excellent (+300% vs single threshold) | ✅ Production |
-| `hailo` | 6 classes + class-specific thresholds | Hailo NPU (Pi 5) | Excellent (planned) | ⏳ Planned |
+| `hailo` | 6 classes + class-specific thresholds | Hailo NPU (Pi 5) | Excellent (same as YOLO) | ✅ Implemented |
 
 All backends preserve class information through tracking → counting → storage.
 Background subtraction produces unclassified detections (`class_id=NULL`, `class_name=NULL`).

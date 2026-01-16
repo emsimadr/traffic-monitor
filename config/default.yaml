@@ -79,9 +79,44 @@ detection:
 
   # Hailo settings (used only when detection.backend == "hailo")
   # Requires Raspberry Pi 5 with AI HAT+ and hailo-all package installed
-  # hailo:
-  #   hef_path: "data/artifacts/yolov8s.hef"  # Compiled model for Hailo
-  #   input_size: [640, 640]                   # Model input dimensions
+  hailo:
+    # Path to compiled HEF model (Hailo Executable Format)
+    # To compile: Use Hailo Dataflow Compiler (see docs/DEPLOYMENT.md)
+    # Download pre-compiled: [URL to be added]
+    hef_path: "data/artifacts/yolov8s.hef"
+    
+    # Model input dimensions [width, height]
+    # Must match HEF compilation settings
+    # 640x640 recommended for balanced accuracy/speed
+    input_size: [640, 640]
+    
+    # Baseline confidence threshold for inference
+    # Set low to capture all detections; class-specific thresholds applied after
+    conf_threshold: 0.25
+    iou_threshold: 0.45
+    
+    # Class filtering: COCO class IDs for neighborhood traffic
+    # Same as YOLO backend for consistency
+    classes: [0, 1, 2, 3, 5, 7]
+    
+    # Human-readable names for detected classes
+    class_name_overrides:
+      0: "person"
+      1: "bicycle"
+      2: "car"
+      3: "motorcycle"
+      5: "bus"
+      7: "truck"
+    
+    # Class-specific confidence thresholds (applied post-detection)
+    # Lower thresholds for small/hard objects, higher for large/easy objects
+    class_thresholds:
+      0: 0.20   # person - LOW (critical for safety, small in frame)
+      1: 0.25   # bicycle - LOW (important for modal split)
+      2: 0.40   # car - HIGH (large, easy to detect)
+      3: 0.30   # motorcycle - MEDIUM
+      5: 0.45   # bus - HIGH (very large)
+      7: 0.45   # truck - HIGH (very large)
 
 # Counting strategy
 counting:

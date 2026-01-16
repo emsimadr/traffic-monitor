@@ -33,6 +33,7 @@ from detection.vehicle import VehicleDetector
 from detection.bgsub_detector import BgSubDetector
 from tracking.tracker import VehicleTracker
 from inference.cpu_backend import UltralyticsCpuBackend, CpuYoloConfig
+from inference.hailo_backend import HailoBackend, HailoConfig
 from storage.database import Database
 from cloud.sync import CloudSync
 from cloud.utils import check_cloud_config
@@ -276,13 +277,60 @@ def main():
             except ImportError:
                 logging.info("YOLO inference device: CPU (PyTorch not installed)")
         elif detector_backend == 'hailo':
-            # Phase 2: Hailo AI HAT+ backend (not yet implemented)
-            # Will be implemented in src/inference/hailo_backend.py
-            raise NotImplementedError(
-                "Hailo backend is not yet implemented. "
-                "Use detection.backend='yolo' for GPU dev, or 'bgsub' for CPU fallback. "
-                "See PLAN.md Milestone 2 for Hailo integration status."
-            )
+            # Hailo AI HAT+ backend for Raspberry Pi 5
+            hcfg = config['detection'].get('hailo', {})
+            
+            # Validate required Hailo configuration
+            if 'hef_path' not in hcfg:
+                logging.error("detection.hailo.hef_path is required when using Hailo backend")
+                logging.info("Falling back to background subtraction")
+                vehicle_detector = VehicleDetector(
+                    min_contour_area=config['detection']['min_contour_area'],
+                    detect_shadows=config['detection'].get('detect_shadows', True)
+                )
+                detector = BgSubDetector(vehicle_detector)
+            else:
+                try:
+                    detector = HailoBackend(
+                        HailoConfig(
+                            hef_path=hcfg['hef_path'],
+                            input_size=tuple(hcfg.get('input_size', [640, 640])),
+                            conf_threshold=float(hcfg.get('conf_threshold', 0.25)),
+                            iou_threshold=float(hcfg.get('iou_threshold', 0.45)),
+                            classes=hcfg.get('classes'),
+                            class_name_overrides=hcfg.get('class_name_overrides'),
+                            class_thresholds=hcfg.get('class_thresholds'),
+                        )
+                    )
+                    logging.info("Hailo inference device: Hailo-8 NPU (AI HAT+)")
+                    logging.info("Target FPS: 15-25 @ 640x640 (performance depends on cooling)")
+                    
+                except (ImportError, FileNotFoundError, RuntimeError) as e:
+                    logging.error(f"Failed to initialize Hailo backend: {e}")
+                    logging.info("Falling back to CPU YOLO backend")
+                    
+                    # Attempt CPU YOLO fallback
+                    try:
+                        ycfg = config['detection'].get('yolo', {})
+                        detector = UltralyticsCpuBackend(
+                            CpuYoloConfig(
+                                model=ycfg.get('model', 'yolov8n.pt'),
+                                conf_threshold=float(ycfg.get('conf_threshold', 0.25)),
+                                iou_threshold=float(ycfg.get('iou_threshold', 0.45)),
+                                classes=ycfg.get('classes'),
+                                class_name_overrides=ycfg.get('class_name_overrides'),
+                                class_thresholds=ycfg.get('class_thresholds'),
+                            )
+                        )
+                        logging.info("CPU YOLO fallback successful")
+                    except Exception as fallback_error:
+                        logging.error(f"CPU YOLO fallback also failed: {fallback_error}")
+                        logging.info("Falling back to background subtraction")
+                        vehicle_detector = VehicleDetector(
+                            min_contour_area=config['detection']['min_contour_area'],
+                            detect_shadows=config['detection'].get('detect_shadows', True)
+                        )
+                        detector = BgSubDetector(vehicle_detector)
         else:
             # Default: background subtraction (works everywhere, no dependencies)
             logging.info("Using background subtraction (no ML model)")
