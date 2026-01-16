@@ -94,7 +94,7 @@ The Neighborhood Traffic Monitoring System is **production-ready** for deploymen
 - ✅ Complete documentation
 
 **Pending:**
-- ⏳ Hailo backend testing on physical hardware (code complete, untested)
+- 📋 Hailo backend implementation (placeholder stub exists, full implementation pending)
 - ⏳ ByteTrack-style improved tracking (optional enhancement)
 
 **Class-Specific Thresholds Achievement:**
@@ -106,7 +106,7 @@ The implementation of two-stage filtering (baseline YOLO threshold + per-class p
 
 This is a significant win for modal split analysis.
 
-**Assessment:** Excellent implementation. Hailo backend code is ready but requires hardware testing on Raspberry Pi 5 with AI HAT+. This is a hardware availability issue, not a code issue.
+**Assessment:** Excellent implementation. YOLO backend with class-specific thresholds is a major achievement. Hailo backend is PLANNED (placeholder stub exists) but full implementation is pending—requires HailoRT SDK integration and HEF model loading.
 
 ---
 
@@ -268,9 +268,9 @@ This is a significant win for modal split analysis.
    - Need webhook or email alerts for camera failures
    - Current: manual monitoring required
 
-3. **Hailo Backend Validation** (Priority: Low)
-   - Code is ready, needs hardware testing
-   - Blocked on hardware availability
+3. **Hailo Backend Implementation** (Priority: Low)
+   - Placeholder stub exists, full implementation needed
+   - Requires HailoRT SDK integration, HEF loading, inference pipeline
 
 4. **Validation Procedure Documentation** (Priority: Medium)
    - Need formal validation process documentation
@@ -371,10 +371,11 @@ This is a significant win for modal split analysis.
 
 ### Medium-Term (1-3 months)
 
-6. **Hailo backend testing**
-   - Test on Pi 5 + AI HAT+ when hardware available
+6. **Hailo backend implementation**
+   - Implement HailoRT SDK integration
+   - Add HEF model loading and inference
+   - Test on Pi 5 + AI HAT+ hardware
    - Validate performance and accuracy
-   - Document deployment procedure
 
 7. **Formal class accuracy validation**
    - Run validation on multi-class detection
@@ -438,7 +439,7 @@ The system demonstrates:
 2. Class-specific thresholds (+300% pedestrian detection improvement)
 3. 3-layer configuration architecture (clean separation)
 4. 5-page React frontend (Dashboard, Configure, Health, Trends, Logs)
-5. Pluggable detection backends (BgSub, YOLO working; Hailo ready)
+5. Pluggable detection backends (BgSub, YOLO working; Hailo planned)
 
 **Recommended before production:**
 1. Add basic alerting (webhook on failures)

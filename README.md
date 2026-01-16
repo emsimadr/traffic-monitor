@@ -323,7 +323,7 @@ The system supports multiple detection backends, configurable for different hard
 |---------|----------|----------------|------------------|----------|
 | `bgsub` | Any CPU | ❌ Single-class | Motion blobs (unclassified) | Default, no dependencies, works everywhere |
 | `yolo` | GPU (CUDA) or CPU | ✅ Multi-class | person, bicycle, car, motorcycle, bus, truck | Best for desktop/dev, enables modal split |
-| `hailo` | Hailo NPU (Pi 5) | ✅ Multi-class | person, bicycle, car, motorcycle, bus, truck | Best for edge deployment (code ready, hardware testing pending) |
+| `hailo` | Hailo NPU (Pi 5) | ✅ Multi-class | person, bicycle, car, motorcycle, bus, truck | Best for edge deployment (📋 PLANNED - placeholder stub exists, implementation pending) |
 
 **Classification Details:**
 - **Multi-class backends** (`yolo`, `hailo`) enable modal split analysis by detecting person, bicycle, car, motorcycle, bus, and truck
