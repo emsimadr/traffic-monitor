@@ -9,37 +9,96 @@ Residential streets often lack objective data about traffic patterns, volumes, a
 ## Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        TRAFFIC MONITOR                            │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐          │
-│  │ Observation │ -> │  Pipeline   │ -> │   Storage   │          │
-│  │   Layer     │    │   Engine    │    │   (SQLite)  │          │
-│  └─────────────┘    └─────────────┘    └─────────────┘          │
-│        │                  │                   │                  │
-│        │                  │                   │                  │
-│  ┌─────┴─────┐     ┌─────┴─────┐      ┌─────┴─────┐             │
-│  │ OpenCV    │     │ Detect    │      │  Cloud    │             │
-│  │ Picamera2 │     │ Track     │      │  Sync     │             │
-│  └───────────┘     │ Measure   │      │ (BigQuery)│             │
-│                    └───────────┘      └───────────┘             │
-│                          │                                       │
-│                    ┌─────┴─────┐                                 │
-│                    │ Counting  │                                 │
-│                    │ Strategies│                                 │
-│                    │ (Gate/    │                                 │
-│                    │  Line)    │                                 │
-│                    └───────────┘                                 │
-│                                                                   │
-├──────────────────────────────────────────────────────────────────┤
-│  Web Interface (React + FastAPI)                                 │
-│  - Dashboard: Live video + counts + alerts                       │
-│  - Configure: Gate lines, camera settings, detection params      │
-│  - Health: System stats, storage, temperature                    │
-│  - Trends: Time-series analysis and historical patterns          │
-│  - Logs: System log viewer with filtering                        │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                         TRAFFIC MONITOR                                │
+│                  Evidence-Grade Traffic Data Collection                │
+└────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────┐
+│  OBSERVATION LAYER (src/observation/)                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                 │
+│  │ OpenCVSource │  │Picamera2Src  │  │   VideoFile  │                 │
+│  │  (USB/RTSP)  │  │   (Pi CSI)   │  │   (Testing)  │                 │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                 │
+│         └────────────┬────────────────────────┘                        │
+│                      ↓ FrameData (BGR, timestamp, transforms)          │
+└────────────────────────────────────────────────────────────────────────┘
+                               ↓
+┌────────────────────────────────────────────────────────────────────────┐
+│  PIPELINE ENGINE (src/pipeline/)                                       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
+│  │  Detect  │→ │  Track   │→ │ Measure  │→ │ Persist  │              │
+│  │  Stage   │  │  Stage   │  │  Stage   │  │  Stage   │              │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘              │
+└───────┼─────────────┼─────────────┼─────────────┼────────────────────┘
+        ↓             ↓             ↓             ↓
+┌────────────────┐ ┌──────────┐ ┌─────────────┐ ┌──────────────────────┐
+│   DETECTION    │ │ TRACKING │ │  COUNTING   │ │      STORAGE         │
+│ (src/detection)│ │(src/track│ │(src/algos)  │ │   (src/storage)      │
+│                │ │   ing)   │ │             │ │                      │
+│ ┌────────────┐ │ │          │ │ ┌─────────┐ │ │  ┌────────────────┐ │
+│ │   BgSub    │ │ │   IoU    │ │ │  Gate   │ │ │  │  count_events  │ │
+│ │  Detector  │ │ │  Tracker │ │ │ Counter │ │ │  │   (schema v3)  │ │
+│ └────────────┘ │ │          │ │ ├─────────┤ │ │  │                │ │
+│                │ │  Track   │ │ │  Line   │ │ │  │ • class_id     │ │
+│ ┌────────────┐ │ │   with   │ │ │ Counter │ │ │  │ • confidence   │ │
+│ │   YOLO     │ │ │ metadata │ │ └─────────┘ │ │  │ • backend      │ │
+│ │ (GPU/CPU)  │ │ │          │ │             │ │  │ • direction    │ │
+│ └──────┬─────┘ │ │  Double  │ │  Canonical  │ │  │ • timestamp    │ │
+│        ↓       │ │  count   │ │  direction  │ │  └────────┬───────┘ │
+│ ┌────────────┐ │ │prevention│ │    codes    │ │           ↓         │
+│ │   Hailo    │ │ └──────────┘ │  (A_TO_B,   │ │  Unique constraint  │
+│ │   (NPU)    │ │              │   B_TO_A)   │ │  Defense-in-depth   │
+│ └──────┬─────┘ │              └─────────────┘ └──────────────────────┘
+└────────┼───────┘                                        │
+         ↓                                                ↓
+┌────────────────────────────┐                 ┌──────────────────────┐
+│  INFERENCE BACKENDS        │                 │   CLOUD SYNC         │
+│  (src/inference)           │                 │   (src/cloud)        │
+│                            │                 │                      │
+│  ┌──────────────────────┐  │                 │  • BigQuery upload   │
+│  │  CPU Backend         │  │                 │  • Cloud Storage     │
+│  │  (Ultralytics YOLO)  │  │                 │  • Async/optional    │
+│  └──────────────────────┘  │                 │  • Schema v3         │
+│                            │                 └──────────────────────┘
+│  ┌──────────────────────┐  │
+│  │  Hailo Backend       │  │
+│  │  (HailoRT NPU)       │  │
+│  └──────────────────────┘  │
+└────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────┐
+│  WEB LAYER (src/web + frontend/)                                       │
+│                                                                         │
+│  FastAPI Backend              React Frontend (TypeScript + Tailwind)   │
+│  ┌─────────────────────┐      ┌─────────────────────────────────────┐ │
+│  │ API Routes          │      │ • Dashboard (live video + counts)   │ │
+│  │ • /api/status       │◄────►│ • Configure (gate lines, settings)  │ │
+│  │ • /api/stats/*      │      │ • Health (system metrics)           │ │
+│  │ • /api/config       │      │ • Trends (time-series charts)       │ │
+│  │ • /api/calibration  │      │ • Logs (system log viewer)          │ │
+│  │ • /api/camera/live  │      └─────────────────────────────────────┘ │
+│  └─────────────────────┘                                               │
+│                                                                         │
+│  Services Layer (src/web/services/)                                    │
+│  • Stats service (modal split, time-series)                            │
+│  • Config service (3-layer merge: default → config → calibration)      │
+│  • Status service (compact polling, health metrics)                    │
+└────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────┐
+│  RUNTIME CONTEXT (src/runtime/)                                        │
+│  • Platform metadata capture                                           │
+│  • Service initialization and dependency injection                     │
+│  • Configuration management (3-layer architecture)                     │
+└────────────────────────────────────────────────────────────────────────┘
+
+KEY ARCHITECTURAL PRINCIPLES:
+✓ Observation → Detection → Tracking → Counting → Storage (strict layers)
+✓ Pluggable backends at each layer (camera, detection, inference)
+✓ Edge-first: runs without internet, cloud sync is optional
+✓ Defense-in-depth: double-count prevention (track state + DB constraint)
+✓ Schema v3: comprehensive metadata for evidence-grade analysis
 ```
 
 ### Key Components
