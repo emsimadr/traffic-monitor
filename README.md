@@ -702,11 +702,21 @@ Tested configurations:
 
 Comprehensive project documentation is available in the `docs/` directory:
 
-- **[PLAN.md](docs/PLAN.md)** - Living roadmap, architecture, milestones, and configuration guide
+### Governance (Core Principles)
 - **[ARCHITECT_CONSTITUTION.md](docs/architect_constitution.md)** - Non-negotiable design principles and governance
-- **[DATA_MODEL_REVIEW.md](docs/DATA_MODEL_REVIEW.md)** - Data model analysis and schema v3 design
-- **[SCHEMA_V3_MIGRATION.md](docs/SCHEMA_V3_MIGRATION.md)** - Migration guide for schema v3
-- **[IMPLEMENTATION_SUMMARY.md](docs/IMPLEMENTATION_SUMMARY.md)** - Schema v3 implementation details
+- **[PLAN.md](docs/PLAN.md)** - Living roadmap, architecture, milestones, and configuration guide
+
+### Status (Living Documents)
+- **[PROJECT_ASSESSMENT_2026-01.md](docs/PROJECT_ASSESSMENT_2026-01.md)** - Current implementation status and readiness
+- **[DOCUMENTATION_AUDIT.md](docs/DOCUMENTATION_AUDIT.md)** - Code-to-documentation verification results
+
+### Technical Guides (Reference)
+- **[SCHEMA_V3.md](docs/SCHEMA_V3.md)** - Complete schema v3 reference (database, migration, validation)
+- **[DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md)** - Developer onboarding and common tasks
+- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Operations guide (Raspberry Pi setup, monitoring, troubleshooting)
+
+### History (Archive)
+- **[DEVELOPMENT_HISTORY.md](docs/DEVELOPMENT_HISTORY.md)** - Major implementation milestones and decisions
 - **[RESTART_INSTRUCTIONS.md](RESTART_INSTRUCTIONS.md)** - Quick reference for developers
 
 ### Governance
