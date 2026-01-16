@@ -2,9 +2,21 @@
 
 A hybrid edge-cloud architecture for monitoring and analyzing traffic patterns on residential streets using a Raspberry Pi (or similar device) and optional Google Cloud Platform sync for data processing.
 
+**Status:** 🟢 Production Ready | **Version:** Schema v3 | **Last Updated:** January 2026
+
 ## Problem Statement
 
 Residential streets often lack objective data about traffic patterns, volumes, and speeds. This project provides a complete monitoring system to collect and analyze traffic data for advocacy, planning, and traffic calming initiatives. The system produces credible, evidence-grade data suitable for presentations to municipal authorities and community stakeholders.
+
+## Getting Started
+
+**Choose your path:**
+
+- 🚀 **Quick Deploy** → Jump to [Quick Start](#quick-start) below for basic setup
+- 🏗️ **Development** → Read [DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md) for architecture and coding
+- 🔧 **Operations** → Read [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Raspberry Pi deployment
+- 📊 **Understanding Data** → Read [SCHEMA_V3.md](docs/SCHEMA_V3.md) for database schema
+- 🎯 **Project Principles** → Read [ARCHITECT_CONSTITUTION.md](docs/architect_constitution.md) for governance
 
 ## Architecture Overview
 
@@ -189,6 +201,8 @@ traffic-monitor/
 
 ## Quick Start
 
+> **Note:** This is a basic development setup. For production Raspberry Pi deployment, see [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ### 1. Install Dependencies
 
 ```bash
@@ -277,6 +291,25 @@ python src/main.py --stop
 # Replace existing instance
 python src/main.py --config config/config.yaml --kill-existing
 ```
+
+### Next Steps
+
+After basic setup, explore these topics:
+
+**For Deployment:**
+- 📖 [DEPLOYMENT.md](docs/DEPLOYMENT.md) - Complete Raspberry Pi setup guide with systemd, monitoring, troubleshooting
+- 🎯 [Calibrate gate lines](#configuration-architecture) - Use web UI at `http://localhost:5000/configure`
+- ✅ [Validate accuracy](docs/DEPLOYMENT.md#validation-procedure) - Ensure counting accuracy meets targets
+
+**For Development:**
+- 🏗️ [DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md) - Architecture, adding features, testing
+- 📋 [PLAN.md](docs/PLAN.md) - Roadmap, milestones, and design decisions
+- 📊 [SCHEMA_V3.md](docs/SCHEMA_V3.md) - Database schema and migration guide
+
+**For Operations:**
+- 📈 Monitor system health at `http://localhost:5000/health`
+- 📊 View trends and analytics at `http://localhost:5000/trends`
+- 🔍 Check logs at `http://localhost:5000/logs` or `logs/traffic_monitor.log`
 
 ## Counting Strategies
 
@@ -377,7 +410,9 @@ No external dependencies. Works on any hardware but doesn't classify objects.
 
 ## Configuration Architecture
 
-The system uses a **3-layer configuration architecture** to separate universal defaults, deployment settings, and site-specific calibration:
+The system uses a **3-layer configuration architecture** to separate universal defaults, deployment settings, and site-specific calibration.
+
+> **Full details:** See [DEPLOYMENT.md - Configuration](docs/DEPLOYMENT.md#configuration) for complete setup instructions.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -465,7 +500,9 @@ effective_config = default ← config ← calibration
 
 ## Raspberry Pi Deployment
 
-### Automated Setup
+> **Complete Guide:** See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for comprehensive setup, configuration, monitoring, and troubleshooting.
+
+### Quick Automated Setup
 
 ```bash
 ssh pi@traffic-pi.local
@@ -590,16 +627,29 @@ To sync data to Google Cloud BigQuery:
 
 ## Development
 
+> **Developer Guide:** See [DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md) for architecture, adding features, testing, and debugging.
+
+**Quick Commands:**
+
 ```bash
 # Run tests
 pytest tests/ -v
 
-# Build frontend in dev mode
+# Build frontend in dev mode (hot reload)
 cd frontend && npm run dev
 
-# Run backend
+# Run backend with display
 python src/main.py --display
+
+# Run backend with debug logging
+python src/main.py --config config/config.yaml --log-level DEBUG
 ```
+
+**Key Resources:**
+- [Architecture Overview](docs/DEVELOPMENT_GUIDE.md#architecture-overview) - Layer responsibilities and data flow
+- [Adding Features](docs/DEVELOPMENT_GUIDE.md#adding-features) - Where does new code go?
+- [Testing](docs/DEVELOPMENT_GUIDE.md#testing) - Writing and running tests
+- [Common Tasks](docs/DEVELOPMENT_GUIDE.md#common-tasks) - Step-by-step guides
 
 ## Current Implementation Status
 
