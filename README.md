@@ -37,6 +37,8 @@ Residential streets often lack objective data about traffic patterns, volumes, a
 │  - Dashboard: Live video + counts + alerts                       │
 │  - Configure: Gate lines, camera settings, detection params      │
 │  - Health: System stats, storage, temperature                    │
+│  - Trends: Time-series analysis and historical patterns          │
+│  - Logs: System log viewer with filtering                        │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -78,9 +80,11 @@ Residential streets often lack objective data about traffic patterns, volumes, a
 
 7. **Frontend** (`frontend/`)
    - React + TypeScript + Tailwind + shadcn/ui
-   - Dashboard with live video and real-time counts
-   - Configuration interface for gate lines and settings
-   - System health monitoring
+   - **Dashboard**: Live video feed + real-time counts + system status
+   - **Configure**: Gate lines, camera settings, detection parameters
+   - **Health**: System metrics, storage, temperature, uptime
+   - **Trends**: Time-series analysis, historical patterns
+   - **Logs**: System log viewer with filtering
 
 ## Project Structure
 
@@ -110,7 +114,7 @@ traffic-monitor/
 │
 ├── frontend/                   # React frontend
 │   ├── src/
-│   │   ├── pages/             # Dashboard, Configure, Health
+│   │   ├── pages/             # Dashboard, Configure, Health, Trends, Logs
 │   │   ├── components/        # UI components
 │   │   └── lib/               # API client, utilities
 │   └── dist/                  # Built frontend (served by FastAPI)
@@ -260,7 +264,7 @@ The system supports multiple detection backends, configurable for different hard
 |---------|----------|----------------|------------------|----------|
 | `bgsub` | Any CPU | ❌ Single-class | Motion blobs (unclassified) | Default, no dependencies, works everywhere |
 | `yolo` | GPU (CUDA) or CPU | ✅ Multi-class | person, bicycle, car, motorcycle, bus, truck | Best for desktop/dev, enables modal split |
-| `hailo` | Hailo NPU (Pi 5) | ✅ Multi-class | person, bicycle, car, motorcycle, bus, truck | Best for edge deployment (not yet implemented) |
+| `hailo` | Hailo NPU (Pi 5) | ✅ Multi-class | person, bicycle, car, motorcycle, bus, truck | Best for edge deployment (code ready, hardware testing pending) |
 
 **Classification Details:**
 - **Multi-class backends** (`yolo`, `hailo`) enable modal split analysis by detecting person, bicycle, car, motorcycle, bus, and truck
@@ -538,11 +542,71 @@ cd frontend && npm run dev
 python src/main.py --display
 ```
 
+## Current Implementation Status
+
+### ✅ Milestone 0 — Deployment Readiness (COMPLETE)
+- Runs headless without intervention
+- Auto-recovers from camera failures
+- Documented setup steps
+- Systemd service for Raspberry Pi
+- Single-instance enforcement via PID file
+
+### ✅ Milestone 1 — Core Counting (COMPLETE)
+- Background subtraction detection
+- IoU-based tracking with double-count prevention
+- Gate counting (two-line, bi-directional) + Line counting (fallback)
+- SQLite storage with `count_events` table (schema v3)
+- Web interface (FastAPI + React)
+
+### ✅ Milestone 2 — AI Detection (COMPLETE)
+- YOLO backend via Ultralytics (GPU/CPU)
+- Multi-class detection (person, bicycle, car, motorcycle, bus, truck)
+- Configurable detection backend (`bgsub`, `yolo`, `hailo`)
+- Hardware-aware logging (shows GPU name or CPU fallback)
+- Full pipeline integration (detection → tracking → counting → storage)
+- **Schema v3** with class metadata (class_id, class_name, confidence, backend, platform, process_pid)
+- **Class-specific confidence thresholds** (improves pedestrian/bicycle detection by 300-400%)
+- Migration tools for config and BigQuery schema
+
+### 🔄 Milestone 4 — Modal Split Analytics (BACKEND COMPLETE, FRONTEND IN PROGRESS)
+- ✅ Multi-class detection (via YOLO backend)
+- ✅ Class metadata stored in database (schema v3)
+- ✅ Class-based statistics API (`/api/stats/by-class`)
+- ✅ Trends page in frontend (time-series visualization)
+- ⏳ Enhanced Dashboard modal split display
+- ⏳ Class-specific time-of-day patterns
+- ⏳ Modal split reports (vehicles vs pedestrians vs cyclists)
+- ⏳ Validation procedure for class accuracy
+
+### ⏳ Milestone 3 — Speed Measurement (NOT STARTED)
+- Camera calibration procedure
+- Ground-plane speed estimation
+- Speed distribution statistics
+- Validation against reference
+
+### ⏳ Milestone 5 — Heatmaps (NOT STARTED)
+- Trajectory aggregation
+- Time-bucketed occupancy grids
+- Bird's-eye view transformation
+
+### ⏳ Milestone 6 — Reliability & Monitoring (PARTIAL)
+- ✅ Health status endpoint with system metrics
+- ✅ Disk usage and temperature monitoring
+- ⏳ Alerting for camera offline
+- ⏳ Uptime tracking dashboard
+- ⏳ Cost controls for cloud
+
+### ⏳ Milestone 7 — Advocacy Packaging (NOT STARTED)
+- Chart generation
+- One-page summary template
+- Before/after comparison tools
+- CSV/PDF exports
+
 ## Data Collection
 
 The system collects the following data:
 
-**Per Count Event (stored in SQLite):**
+**Per Count Event (stored in SQLite, schema v3):**
 - Timestamp (epoch milliseconds)
 - Track ID (transient, resets on restart)
 - Direction (A_TO_B / B_TO_A)
@@ -550,7 +614,9 @@ The system collects the following data:
 - Detection confidence score
 - Gate crossing frames
 - Track age and displacement
-- Detection backend used
+- Detection backend used (bgsub, yolo, hailo)
+- Platform info (OS, Python version)
+- Process PID (for debugging)
 
 **Video Data:**
 - Live MJPEG stream available via web interface (not stored)
@@ -573,9 +639,38 @@ Tested configurations:
 | Raspberry Pi 5 | Background Sub | 20-25 | Edge deployment, single-class |
 | Raspberry Pi 5 + AI HAT+ | Hailo (planned) | 20-30 | Edge deployment with classification |
 
+## Documentation
+
+Comprehensive project documentation is available in the `docs/` directory:
+
+- **[PLAN.md](docs/PLAN.md)** - Living roadmap, architecture, milestones, and configuration guide
+- **[ARCHITECT_CONSTITUTION.md](docs/architect_constitution.md)** - Non-negotiable design principles and governance
+- **[DATA_MODEL_REVIEW.md](docs/DATA_MODEL_REVIEW.md)** - Data model analysis and schema v3 design
+- **[SCHEMA_V3_MIGRATION.md](docs/SCHEMA_V3_MIGRATION.md)** - Migration guide for schema v3
+- **[IMPLEMENTATION_SUMMARY.md](docs/IMPLEMENTATION_SUMMARY.md)** - Schema v3 implementation details
+- **[RESTART_INSTRUCTIONS.md](RESTART_INSTRUCTIONS.md)** - Quick reference for developers
+
+### Governance
+
+This project follows strict architectural governance to ensure data quality, privacy, and reliability:
+
+- **Evidence-grade data**: Every measurement must be reproducible and documented
+- **Edge-first**: System must work without internet access
+- **Defense in depth**: Multiple layers prevent double-counting
+- **Architectural boundaries**: Clear layer separation (observation → detection → tracking → counting → storage → web)
+- **Small, reviewable changes**: Prefer incremental improvements over sweeping rewrites
+
+See [ARCHITECT_CONSTITUTION.md](docs/architect_constitution.md) for complete principles.
+
 ## Contributing
 
-Contributions welcome! Please open an issue or PR.
+Contributions welcome! Please:
+
+1. Read [ARCHITECT_CONSTITUTION.md](docs/architect_constitution.md) and [PLAN.md](docs/PLAN.md)
+2. Make small, testable, incremental changes
+3. Add tests for new functionality
+4. Update documentation as needed
+5. Open an issue or PR
 
 ## License
 
